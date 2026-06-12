@@ -1,0 +1,14 @@
+{
+  "name": "retirement-calc",
+  "version": "1.0.0",
+  "description": "Browser-only investment & retirement calculator with a simplified Austrian tax model (KESt). Dev tooling only — the site is static files with no build step.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node test.js",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0"
+  }
+}

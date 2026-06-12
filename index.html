@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spar- & Pensionsrechner</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 data-i18n="title">Spar- & Pensionsrechner</h1>
+      <p class="subtitle" data-i18n="subtitle"></p>
+    </div>
+    <button id="langToggle" type="button" aria-label="Sprache wechseln / switch language">EN</button>
+  </header>
+
+  <main>
+    <form id="inputs" autocomplete="off">
+
+      <section>
+        <h2 data-i18n="savingsPhase"></h2>
+        <div class="grid">
+          <label>
+            <span data-i18n="startingAmount"></span>
+            <input type="number" id="startingAmount" min="0" step="500">
+          </label>
+          <label>
+            <span data-i18n="startingCostBasis"></span>
+            <input type="number" id="startingCostBasis" min="0" step="500">
+            <small data-i18n="startingCostBasisHint"></small>
+          </label>
+          <label>
+            <span data-i18n="monthlyContribution"></span>
+            <input type="number" id="monthlyContribution" min="0" step="50">
+          </label>
+          <label>
+            <span data-i18n="contributionIncrease"></span>
+            <span class="inline">
+              <input type="number" id="contributionIncreaseValue" min="0" step="0.5">
+              <select id="contributionIncreaseUnit">
+                <option value="percent" data-i18n="increasePercent"></option>
+                <option value="amount" data-i18n="increaseAmount"></option>
+              </select>
+            </span>
+          </label>
+          <label>
+            <span data-i18n="yearsToRetirement"></span>
+            <input type="number" id="yearsToRetirement" min="1" max="80" step="1">
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2 data-i18n="portfolio"></h2>
+        <div class="table-wrap">
+          <table id="allocationTable">
+            <thead>
+              <tr>
+                <th data-i18n="asset"></th>
+                <th data-i18n="allocation"></th>
+                <th class="late-col hidden"><span data-i18n="allocationLate"></span> <span class="switch-year-label"></span></th>
+                <th data-i18n="annualReturn"></th>
+                <th data-i18n="dividendYield"></th>
+                <th data-i18n="ter"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-asset="etf">
+                <td data-i18n="assetEtf"></td>
+                <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
+                <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
+                <td><input type="number" data-field="ter" min="0" step="0.05"></td>
+              </tr>
+              <tr data-asset="bonds">
+                <td data-i18n="assetBonds"></td>
+                <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
+                <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
+                <td><input type="number" data-field="ter" min="0" step="0.05"></td>
+              </tr>
+              <tr data-asset="stocks">
+                <td data-i18n="assetStocks"></td>
+                <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
+                <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
+                <td><input type="number" data-field="ter" min="0" step="0.05"></td>
+              </tr>
+              <tr data-asset="dividendStocks">
+                <td data-i18n="assetDividendStocks"></td>
+                <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
+                <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
+                <td><input type="number" data-field="ter" min="0" step="0.05"></td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td data-i18n="sum"></td>
+                <td id="allocationSum"></td>
+                <td class="late-col hidden" id="allocationLateSum"></td>
+                <td colspan="3"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p id="allocationWarning" class="warning hidden" data-i18n="allocationWarning"></p>
+
+        <label class="checkbox">
+          <input type="checkbox" id="allocationSwitchEnabled">
+          <span data-i18n="allocationSwitch"></span>
+        </label>
+        <label class="indent" id="allocationSwitchYearRow">
+          <span data-i18n="allocationSwitchYear"></span>
+          <input type="number" id="allocationSwitchYear" min="1" max="80" step="1" class="small-input">
+          <small data-i18n="allocationSwitchHint"></small>
+        </label>
+
+        <label class="checkbox">
+          <input type="checkbox" id="reinvestDividends">
+          <span data-i18n="reinvestDividends"></span>
+        </label>
+      </section>
+
+      <section>
+        <h2 data-i18n="retirementPhase"></h2>
+        <div class="grid">
+          <label>
+            <span data-i18n="monthlyWithdrawal"></span>
+            <input type="number" id="monthlyWithdrawal" min="0" step="100">
+          </label>
+        </div>
+        <label class="checkbox">
+          <input type="checkbox" id="withdrawalInflationAdjusted">
+          <span data-i18n="withdrawalInflationAdjusted"></span>
+        </label>
+      </section>
+
+      <details id="parametersSection">
+        <summary data-i18n="parameters"></summary>
+        <div class="grid">
+          <label>
+            <span data-i18n="kest"></span>
+            <input type="number" id="kest" min="0" max="100" step="0.5">
+          </label>
+          <label>
+            <span data-i18n="inflation"></span>
+            <input type="number" id="inflation" min="0" step="0.1">
+          </label>
+          <label>
+            <span data-i18n="scenarioSpread"></span>
+            <input type="number" id="scenarioSpread" min="0" step="0.5">
+            <small data-i18n="scenarioSpreadHint"></small>
+          </label>
+          <label>
+            <span data-i18n="maxRetirementYears"></span>
+            <input type="number" id="maxRetirementYears" min="1" max="100" step="1">
+          </label>
+        </div>
+        <label class="checkbox">
+          <input type="checkbox" id="displayReal">
+          <span data-i18n="displayReal"></span>
+        </label>
+      </details>
+
+      <div class="storage-row">
+        <label class="checkbox">
+          <input type="checkbox" id="saveInputs">
+          <span data-i18n="saveInputs"></span>
+        </label>
+        <button type="button" id="resetDefaults" data-i18n="resetDefaults"></button>
+      </div>
+    </form>
+
+    <section class="chart-section">
+      <h2 data-i18n="chartTitle"></h2>
+      <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+      </div>
+    </section>
+
+    <section id="summary" class="summary"></section>
+
+    <section>
+      <h2 data-i18n="perAssetAtRetirement"></h2>
+      <div class="table-wrap">
+        <table id="perAssetTable"></table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p data-i18n="disclaimer"></p>
+  </footer>
+
+  <script src="i18n.js"></script>
+  <script src="calculator.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

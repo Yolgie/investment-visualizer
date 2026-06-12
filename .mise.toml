@@ -1,0 +1,14 @@
+[tools]
+node = "lts"
+
+[tasks.test]
+run = "node test.js"
+description = "Run the simulation unit tests"
+
+[tasks.lint]
+run = "npx eslint ."
+description = "Run eslint"
+
+[tasks.serve]
+run = "python3 -m http.server 8000"
+description = "Serve the site locally on http://localhost:8000"

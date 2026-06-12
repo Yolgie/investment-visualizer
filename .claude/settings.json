@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/claude/workspace && bash .claude/container-setup.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "/home/claude/workspace/.claude/statusline.sh",
+    "padding": 2
+  }
+}
