@@ -255,5 +255,19 @@ const base = {
     `${recorded} != ${r.summary.dividends.net}`);
 }
 
+// 16. Monthly records carry per-asset values that add up to the total.
+{
+  const r = simulate(Object.assign({}, base, {
+    assets: [
+      { id: 'a', allocationStart: 60, allocation: 30, allocationLate: 30, annualReturn: 5, dividendYield: 1, ter: 0.2 },
+      { id: 'b', allocationStart: 40, allocation: 70, allocationLate: 70, annualReturn: 3, dividendYield: 0, ter: 0 },
+    ],
+    yearsToRetirement: 3, maxRetirementYears: 2,
+  }));
+  const ok = r.months.every((m) => Math.abs(m.perAsset.reduce((s, v) => s + v, 0) - m.value) < 1e-6);
+  check('per-asset record values sum to total', ok);
+  check('per-asset record has one entry per asset', r.months[0].perAsset.length === 2);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

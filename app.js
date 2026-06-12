@@ -117,6 +117,42 @@ function restore() {
   }
 }
 
+// ------------------------------------------------------- export / import ----
+
+function exportInputs() {
+  const state = {
+    app: 'retirement-calc',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    params: readParams(),
+    displayReal: $('displayReal').checked,
+  };
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'retirement-calc-inputs.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importInputs(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const state = JSON.parse(reader.result);
+      if (!state || typeof state !== 'object' || !state.params || !Array.isArray(state.params.assets)) {
+        throw new Error('not a calculator export');
+      }
+      setFormValues(Object.assign({}, DEFAULT_PARAMS, state.params), state);
+      recalc();
+      persist();
+    } catch {
+      alert(t('importError'));
+    }
+  };
+  reader.readAsText(file);
+}
+
 // ------------------------------------------------------- allocation checks --
 
 function updateAllocationUI(params) {
@@ -144,13 +180,27 @@ function updateAllocationUI(params) {
   startSumEl.classList.toggle('sum-bad', startBad);
   sumEl.classList.toggle('sum-bad', bad);
   lateSumEl.classList.toggle('sum-bad', lateBad);
-  $('allocationWarning').classList.toggle('hidden', !(startBad || bad || lateBad));
+
+  const badColumns = [];
+  if (startBad) badColumns.push(`${t('allocationStart')} (${startSum} %)`);
+  if (bad) badColumns.push(`${t('allocation')} (${sum} %)`);
+  if (lateBad) badColumns.push(`${t('allocationLate')} ${params.allocationSwitch.year} (${lateSum} %)`);
+  const warningEl = $('allocationWarning');
+  warningEl.classList.toggle('hidden', badColumns.length === 0);
+  warningEl.textContent = t('allocationWarning').replace('{columns}', badColumns.join(', '));
 }
 
 // -------------------------------------------------------------------- chart --
 
 let chart = null;
+let assetChart = null;
 let pieChart = null;
+const ASSET_COLORS = {
+  etf: { border: '#2563eb', fill: 'rgba(37,99,235,0.35)' },
+  bonds: { border: '#64748b', fill: 'rgba(100,116,139,0.35)' },
+  stocks: { border: '#16a34a', fill: 'rgba(22,163,74,0.35)' },
+  dividendStocks: { border: '#d97706', fill: 'rgba(217,119,6,0.35)' },
+};
 // Context for the tooltip's dividends-per-year line, refreshed on every render.
 let tooltipData = null;
 
@@ -280,6 +330,67 @@ function renderChart(scenarios, params, displayReal) {
   }
 }
 
+// Stacked area chart: each asset's value over time (avg scenario), visibly
+// separated like paid-in capital vs. total value in the main chart.
+function renderAssetChart(scenarios, params, displayReal) {
+  const months = scenarios.avg.months;
+  const infl = params.inflation;
+  const fallbackColors = ['#2563eb', '#64748b', '#16a34a', '#d97706'];
+
+  const datasets = params.assets.map((asset, i) => {
+    const color = ASSET_COLORS[asset.id] || { border: fallbackColors[i % 4], fill: fallbackColors[i % 4] };
+    return {
+      label: t(ASSET_LABEL_KEYS[asset.id] || asset.id),
+      data: toSeries(months, infl, displayReal, (m) => m.perAsset[i]),
+      borderColor: color.border,
+      backgroundColor: color.fill,
+      borderWidth: 1,
+      pointRadius: 0,
+      fill: i === 0 ? 'origin' : '-1', // stack the areas on top of each other
+    };
+  });
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: t('chartYear') },
+        ticks: { callback: (v) => Math.round(v), maxTicksLimit: 15 },
+      },
+      y: {
+        stacked: true,
+        beginAtZero: true,
+        ticks: { callback: (v) => fmtMoney(v) },
+      },
+    },
+    plugins: {
+      retirementLine: { year: START_YEAR + params.yearsToRetirement, label: t('chartRetirement') },
+      tooltip: {
+        callbacks: {
+          title: (items) => `${t('chartYear')} ${Math.round(items[0].parsed.x)}`,
+          label: (item) => `${item.dataset.label}: ${fmtMoney(item.parsed.y)}`,
+        },
+      },
+    },
+  };
+
+  if (assetChart) {
+    assetChart.data.datasets = datasets;
+    assetChart.options = options;
+    assetChart.update('none');
+  } else {
+    assetChart = new Chart($('assetChart'), {
+      type: 'line',
+      data: { datasets },
+      options,
+      plugins: [retirementLinePlugin],
+    });
+  }
+}
+
 function renderPie(scenarios, params, displayReal) {
   const s = scenarios.avg.summary;
   // Deflating divides all slices by the same factor, so proportions are
@@ -331,6 +442,14 @@ function lastsText(summary, params) {
   return t('summaryLastsYears').replace('{years}', years).replace('{endYear}', endYear);
 }
 
+// Compact form for the range line: "13.2 years" or "> 60 years (end of simulation)".
+function lastsShort(summary, params) {
+  if (summary.runOutMonth === null) {
+    return t('summaryLastsShortMore').replace('{years}', params.maxRetirementYears);
+  }
+  return t('summaryLastsShort').replace('{years}', Math.round(summary.lastsYears * 10) / 10);
+}
+
 function card(title, value, range) {
   return `<div class="card"><h3>${title}</h3><div class="value">${value}</div>${
     range ? `<div class="range">${t('summaryRange')}: ${range}</div>` : ''}</div>`;
@@ -360,7 +479,7 @@ function renderSummary(scenarios, params, displayReal) {
     card(
       t('summaryLasts'),
       lastsText(avg.summary, params),
-      `${lastsText(min.summary, params)} | ${lastsText(max.summary, params)}`,
+      `${lastsShort(min.summary, params)} – ${lastsShort(max.summary, params)}`,
     ),
   ];
   $('summary').innerHTML = cards.join('');
@@ -410,6 +529,7 @@ function recalc() {
   updateAllocationUI(params);
   const scenarios = simulateScenarios(params);
   renderChart(scenarios, params, displayReal);
+  renderAssetChart(scenarios, params, displayReal);
   renderSummary(scenarios, params, displayReal);
   renderPerAsset(scenarios, params, displayReal);
   renderPie(scenarios, params, displayReal);
@@ -436,6 +556,14 @@ function init() {
     setFormValues(DEFAULT_PARAMS, { displayReal: false });
     recalc();
     persist();
+  });
+
+  $('exportInputs').addEventListener('click', exportInputs);
+  $('importInputs').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', () => {
+    const file = $('importFile').files[0];
+    if (file) importInputs(file);
+    $('importFile').value = ''; // allow re-importing the same file
   });
 
   $('langToggle').addEventListener('click', () => setLanguage(lang === 'de' ? 'en' : 'de'));

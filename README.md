@@ -26,8 +26,10 @@ files, ready for GitHub Pages.
 - Min / average / max return scenarios (configurable ± spread) shown as a band
 - Nominal vs. real (today's purchasing power) display toggle
 - German / English language toggle
+- Second chart with the portfolio value stacked by asset class over time
 - **Opt-in** persistence: inputs are only stored in your browser's localStorage
   if you check the box — nothing ever leaves your machine
+- Export / import of all inputs as a JSON file (for sharing or backup)
 
 > ⚠️ **Disclaimer:** This is a simplified model for visualization purposes —
 > not tax or investment advice. In particular, the annual taxation of
@@ -48,7 +50,7 @@ network connection.
 ```sh
 npm ci        # dev tooling only — the site itself has no build step
 npm test      # unit tests for the simulation math (node test.js)
-npm run lint  # eslint
+npm run lint  # eslint (needs Node >= 20)
 ```
 
 ## Deploy to GitHub Pages

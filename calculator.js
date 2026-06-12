@@ -123,6 +123,7 @@ function simulate(rawParams, scenarioShift = 0) {
     months.push({
       month, value: totalValue(), basis: totalBasis(), contributions: totalContributions,
       dividends, // net dividends received in this month
+      perAsset: buckets.map((b) => b.value), // same order as params.assets
       phase,
     });
   };

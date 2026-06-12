@@ -116,7 +116,7 @@
             </tfoot>
           </table>
         </div>
-        <p id="allocationWarning" class="warning hidden" data-i18n="allocationWarning"></p>
+        <p id="allocationWarning" class="warning hidden"></p>
 
         <label class="checkbox">
           <input type="checkbox" id="allocationSwitchEnabled">
@@ -180,7 +180,12 @@
           <input type="checkbox" id="saveInputs">
           <span data-i18n="saveInputs"></span>
         </label>
-        <button type="button" id="resetDefaults" data-i18n="resetDefaults"></button>
+        <span class="button-row">
+          <button type="button" id="exportInputs" data-i18n="exportInputs"></button>
+          <button type="button" id="importInputs" data-i18n="importInputs"></button>
+          <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+          <button type="button" id="resetDefaults" data-i18n="resetDefaults"></button>
+        </span>
       </div>
     </form>
 
@@ -188,6 +193,13 @@
       <h2 data-i18n="chartTitle"></h2>
       <div class="chart-wrap">
         <canvas id="chart"></canvas>
+      </div>
+    </section>
+
+    <section class="chart-section">
+      <h2 data-i18n="assetChartTitle"></h2>
+      <div class="chart-wrap">
+        <canvas id="assetChart"></canvas>
       </div>
     </section>
 
