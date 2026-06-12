@@ -20,11 +20,14 @@ const DEFAULT_PARAMS = {
   // allocationLate the contributions after the switch year. Each in %, should sum to
   // 100 across assets (UI warns; math normalizes).
   // annualReturn = price appreciation, dividendYield = distributions, ter = fund costs; all % p.a.
+  // withdrawalShare: which assets are sold to fund the retirement withdrawal (in %,
+  // should sum to 100). Once those run dry, selling falls back to the remaining
+  // assets proportionally by value.
   assets: [
-    { id: 'etf', allocationStart: 70, allocation: 70, allocationLate: 50, annualReturn: 6.5, dividendYield: 0, ter: 0.2 },
-    { id: 'bonds', allocationStart: 10, allocation: 10, allocationLate: 10, annualReturn: 2.5, dividendYield: 0, ter: 0.1 },
-    { id: 'stocks', allocationStart: 10, allocation: 10, allocationLate: 10, annualReturn: 7, dividendYield: 0, ter: 0 },
-    { id: 'dividendStocks', allocationStart: 10, allocation: 10, allocationLate: 30, annualReturn: 4, dividendYield: 3, ter: 0 },
+    { id: 'etf', allocationStart: 70, allocation: 70, allocationLate: 50, withdrawalShare: 90, annualReturn: 6.5, dividendYield: 0, ter: 0.2 },
+    { id: 'bonds', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1 },
+    { id: 'stocks', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 10, annualReturn: 7, dividendYield: 0, ter: 0 },
+    { id: 'dividendStocks', allocationStart: 10, allocation: 10, allocationLate: 30, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0 },
   ],
   // From year `year` on, contributions are split by allocationLate instead of allocation.
   // Existing holdings are never sold/rebalanced (no tax event).
@@ -53,6 +56,9 @@ function withDefaults(partial) {
   p.assets = (p.assets || DEFAULT_PARAMS.assets).map((a) => {
     const asset = Object.assign({}, a);
     if (asset.allocationStart == null) asset.allocationStart = asset.allocation;
+    // Inputs from before withdrawalShare existed: 0 for every asset means
+    // "no preference", which falls back to value-proportional selling.
+    if (asset.withdrawalShare == null) asset.withdrawalShare = 0;
     return asset;
   });
   return p;
@@ -97,6 +103,7 @@ function simulate(rawParams, scenarioShift = 0) {
     basis: 0,
     growthRate: monthlyRate(a.annualReturn + scenarioShift - a.ter),
     dividendRate: a.dividendYield / 100 / 12,
+    withdrawalShare: Math.max(0, a.withdrawalShare),
   }));
 
   // Starting amount has its own allocation (the current holdings); its cost basis
@@ -224,17 +231,24 @@ function simulate(rawParams, scenarioShift = 0) {
       needNet = 0;
     }
 
-    // 2. Cover the rest by selling, proportionally by value. An asset whose gains
-    //    are above average may not cover its proportional share near depletion,
-    //    so loop over the remaining buckets until the need is met or nothing is left.
+    // 2. Cover the rest by selling. Sales are split by each asset's withdrawalShare;
+    //    once the preferred assets are empty (or no shares are configured at all),
+    //    selling falls back to the remaining buckets proportionally by value.
+    //    An asset may not cover its share near depletion, so loop until the
+    //    need is met or nothing is left.
     let guard = 0;
     while (needNet > 1e-9 && guard++ < buckets.length + 2) {
       const sellable = buckets.filter((b) => b.value > 1e-9);
       const v = sellable.reduce((s, b) => s + b.value, 0);
       if (v <= 1e-9) break;
+      const shareSum = sellable.reduce((s, b) => s + b.withdrawalShare, 0);
+      const weightOf = shareSum > 0
+        ? (b) => b.withdrawalShare / shareSum
+        : (b) => b.value / v;
       const needThisPass = needNet;
       for (const b of sellable) {
-        const netWanted = needThisPass * (b.value / v);
+        const netWanted = needThisPass * weightOf(b);
+        if (netWanted <= 0) continue;
         const gainFrac = b.value > 0 ? Math.max(0, (b.value - b.basis) / b.value) : 0;
         let gross = netWanted / (1 - gainFrac * kest);
         let net;

@@ -62,6 +62,7 @@
                 <th data-i18n="allocationStart"></th>
                 <th data-i18n="allocation"></th>
                 <th class="late-col hidden"><span data-i18n="allocationLate"></span> <span class="switch-year-label"></span></th>
+                <th data-i18n="withdrawalShare"></th>
                 <th data-i18n="annualReturn"></th>
                 <th data-i18n="dividendYield"></th>
                 <th data-i18n="ter"></th>
@@ -73,6 +74,7 @@
                 <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
@@ -82,6 +84,7 @@
                 <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
@@ -91,6 +94,7 @@
                 <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
@@ -100,6 +104,7 @@
                 <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
+                <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
@@ -111,11 +116,13 @@
                 <td id="allocationStartSum"></td>
                 <td id="allocationSum"></td>
                 <td class="late-col hidden" id="allocationLateSum"></td>
+                <td id="withdrawalShareSum"></td>
                 <td colspan="3"></td>
               </tr>
             </tfoot>
           </table>
         </div>
+        <p class="hint" data-i18n="withdrawalShareHint"></p>
         <p id="allocationWarning" class="warning hidden"></p>
 
         <label class="checkbox">

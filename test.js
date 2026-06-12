@@ -269,5 +269,52 @@ const base = {
   check('per-asset record has one entry per asset', r.months[0].perAsset.length === 2);
 }
 
+// 17. Withdrawal source: sales come only from assets with withdrawalShare > 0.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 200000, startingCostBasis: 200000, monthlyContribution: 0, yearsToRetirement: 0,
+    monthlyWithdrawal: 1000, maxRetirementYears: 2,
+    assets: [
+      { id: 'sell', allocationStart: 50, allocation: 50, allocationLate: 50, withdrawalShare: 100, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'keep', allocationStart: 50, allocation: 50, allocationLate: 50, withdrawalShare: 0, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  });
+  const r = simulate(p);
+  const last = r.months[r.months.length - 1];
+  check('withdrawal source: kept asset untouched', approx(last.perAsset[1], 100000), last.perAsset[1]);
+  check('withdrawal source: sold asset shrinks', approx(last.perAsset[0], 100000 - 24 * 1000), last.perAsset[0]);
+}
+
+// 18. Withdrawal source fallback: after the preferred asset is empty, the rest is sold
+//     and the money lasts until everything is gone.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 20000, startingCostBasis: 20000, monthlyContribution: 0, yearsToRetirement: 0,
+    monthlyWithdrawal: 1000, maxRetirementYears: 5,
+    assets: [
+      { id: 'sell', allocationStart: 50, allocation: 50, allocationLate: 50, withdrawalShare: 100, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'keep', allocationStart: 50, allocation: 50, allocationLate: 50, withdrawalShare: 0, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  });
+  const r = simulate(p);
+  check('withdrawal fallback: lasts the full 20 months', r.summary.runOutMonth === 20, r.summary.runOutMonth);
+}
+
+// 19. No withdrawalShare configured (all 0 / legacy inputs): proportional by value.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 200000, startingCostBasis: 200000, monthlyContribution: 0, yearsToRetirement: 0,
+    monthlyWithdrawal: 1000, maxRetirementYears: 1,
+    assets: [
+      { id: 'a', allocationStart: 50, allocation: 50, allocationLate: 50, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'b', allocationStart: 50, allocation: 50, allocationLate: 50, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  });
+  const r = simulate(p);
+  const last = r.months[r.months.length - 1];
+  check('legacy: proportional selling across both', approx(last.perAsset[0], last.perAsset[1]),
+    `${last.perAsset[0]} != ${last.perAsset[1]}`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -23,6 +23,11 @@ files, ready for GitHub Pages.
   existing holdings (no tax event)
 - Drawdown phase: net (after-KESt) monthly withdrawal, optionally indexed to
   inflation, with correct grossing-up of sales based on the unrealized-gain share
+- Withdrawal source column: choose which asset classes are sold in retirement
+  (e.g. 90 % ETFs / 10 % stocks); once they run dry, the rest is sold
+  proportionally
+- Composition pie uses the paid-in capital: pre-existing gains in the starting
+  amount count as growth, not as paid-in money
 - Min / average / max return scenarios (configurable ± spread) shown as a band
 - Nominal vs. real (today's purchasing power) display toggle
 - German / English language toggle

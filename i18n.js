@@ -21,6 +21,8 @@ const I18N = {
     allocationStart: 'Startkapital %',
     allocation: 'Sparrate %',
     allocationLate: 'Sparrate % ab Jahr',
+    withdrawalShare: 'Entnahme %',
+    withdrawalShareHint: 'Aus welchen Anlageklassen Verkäufe in der Entnahmephase erfolgen. Sind diese aufgebraucht, wird aus den übrigen verkauft.',
     annualReturn: 'Kursrendite % p.a.',
     dividendYield: 'Dividende % p.a.',
     ter: 'TER % p.a.',
@@ -65,7 +67,7 @@ const I18N = {
     importError: 'Die Datei konnte nicht gelesen werden — ist es ein Export dieses Rechners?',
 
     pieTitle: 'Zusammensetzung bei Pensionsantritt',
-    pieStartingAmount: 'Startkapital',
+    pieStartingAmount: 'Eingezahltes Startkapital',
     pieContributions: 'Sparraten',
     pieGrowth: 'Wertzuwachs',
 
@@ -108,6 +110,8 @@ const I18N = {
     allocationStart: 'Starting amount %',
     allocation: 'Contribution %',
     allocationLate: 'Contribution % from year',
+    withdrawalShare: 'Withdrawal %',
+    withdrawalShareHint: 'Which asset classes are sold during the drawdown phase. Once they are used up, the remaining assets are sold.',
     annualReturn: 'Price return % p.a.',
     dividendYield: 'Dividend % p.a.',
     ter: 'TER % p.a.',
@@ -152,7 +156,7 @@ const I18N = {
     importError: 'Could not read the file — is it an export from this calculator?',
 
     pieTitle: 'Composition at retirement',
-    pieStartingAmount: 'Starting amount',
+    pieStartingAmount: 'Paid-in starting capital',
     pieContributions: 'Contributions',
     pieGrowth: 'Growth',
 
