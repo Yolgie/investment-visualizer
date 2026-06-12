@@ -48,9 +48,13 @@ function setFormValues(params, ui) {
   for (const row of document.querySelectorAll('#allocationTable tbody tr')) {
     const asset = params.assets.find((a) => a.id === row.dataset.asset);
     if (!asset) continue;
+    const defaults = DEFAULT_PARAMS.assets.find((a) => a.id === asset.id) || {};
     for (const input of row.querySelectorAll('input')) {
-      // Fall back for inputs stored before allocationStart existed.
-      input.value = asset[input.dataset.field] ?? asset.allocation ?? 0;
+      const field = input.dataset.field;
+      // Fall back for inputs stored before the field existed: withdrawalShare
+      // gets its default, allocation columns mirror the contribution split.
+      const fallback = field === 'withdrawalShare' ? (defaults.withdrawalShare ?? 0) : (asset.allocation ?? 0);
+      input.value = asset[field] ?? fallback;
     }
   }
 }
@@ -168,23 +172,29 @@ function updateAllocationUI(params) {
   const startSum = params.assets.reduce((s, a) => s + a.allocationStart, 0);
   const sum = params.assets.reduce((s, a) => s + a.allocation, 0);
   const lateSum = params.assets.reduce((s, a) => s + a.allocationLate, 0);
+  const withdrawalSum = params.assets.reduce((s, a) => s + a.withdrawalShare, 0);
   const startSumEl = $('allocationStartSum');
   const sumEl = $('allocationSum');
   const lateSumEl = $('allocationLateSum');
+  const withdrawalSumEl = $('withdrawalShareSum');
   startSumEl.textContent = `${startSum} %`;
   sumEl.textContent = `${sum} %`;
   lateSumEl.textContent = `${lateSum} %`;
+  withdrawalSumEl.textContent = `${withdrawalSum} %`;
   const startBad = Math.abs(startSum - 100) > 0.01;
   const bad = Math.abs(sum - 100) > 0.01;
   const lateBad = lateVisible && Math.abs(lateSum - 100) > 0.01;
+  const withdrawalBad = Math.abs(withdrawalSum - 100) > 0.01;
   startSumEl.classList.toggle('sum-bad', startBad);
   sumEl.classList.toggle('sum-bad', bad);
   lateSumEl.classList.toggle('sum-bad', lateBad);
+  withdrawalSumEl.classList.toggle('sum-bad', withdrawalBad);
 
   const badColumns = [];
   if (startBad) badColumns.push(`${t('allocationStart')} (${startSum} %)`);
   if (bad) badColumns.push(`${t('allocation')} (${sum} %)`);
   if (lateBad) badColumns.push(`${t('allocationLate')} ${params.allocationSwitch.year} (${lateSum} %)`);
+  if (withdrawalBad) badColumns.push(`${t('withdrawalShare')} (${withdrawalSum} %)`);
   const warningEl = $('allocationWarning');
   warningEl.classList.toggle('hidden', badColumns.length === 0);
   warningEl.textContent = t('allocationWarning').replace('{columns}', badColumns.join(', '));
@@ -397,16 +407,21 @@ function renderPie(scenarios, params, displayReal) {
   // unchanged — only the tooltip amounts switch to today's purchasing power.
   const deflator = displayReal
     ? Math.pow(1 + params.inflation / 100, s.accumulationMonths / 12) : 1;
-  const starting = Math.min(params.startingAmount, s.atRetirement.value);
+  // The paid-in part of the starting amount is its cost basis ("invested capital
+  // thereof"); any pre-existing gains in the starting amount count as growth.
+  const paidInStart = Math.min(
+    Math.max(0, Math.min(params.startingCostBasis, params.startingAmount)),
+    s.atRetirement.value,
+  );
   const contributions = Math.min(
     Math.max(0, s.totalContributions - params.startingAmount),
-    Math.max(0, s.atRetirement.value - starting),
+    Math.max(0, s.atRetirement.value - paidInStart),
   );
-  const growth = Math.max(0, s.atRetirement.value - s.totalContributions);
+  const growth = Math.max(0, s.atRetirement.value - paidInStart - contributions);
   const data = {
     labels: [t('pieStartingAmount'), t('pieContributions'), t('pieGrowth')],
     datasets: [{
-      data: [starting / deflator, contributions / deflator, growth / deflator],
+      data: [paidInStart / deflator, contributions / deflator, growth / deflator],
       backgroundColor: ['rgba(100,116,139,0.7)', 'rgba(37,99,235,0.7)', 'rgba(22,163,74,0.7)'],
     }],
   };
