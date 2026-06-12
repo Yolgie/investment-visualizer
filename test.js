@@ -316,5 +316,55 @@ const base = {
     `${last.perAsset[0]} != ${last.perAsset[1]}`);
 }
 
+// 20. First-retirement-year breakdown: all from sales, no tax when basis = value.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 100000, startingCostBasis: 100000, monthlyContribution: 0,
+    yearsToRetirement: 0, monthlyWithdrawal: 1000, maxRetirementYears: 3,
+  });
+  const fy = simulate(p).summary.firstRetirementYear;
+  const salesNet = fy.sales.reduce((s, x) => s + x.net, 0);
+  check('first year: sales cover 12 withdrawals', approx(salesNet, 12000), salesNet);
+  check('first year: no KESt without gains', fy.sales.reduce((s, x) => s + x.kest, 0) === 0);
+  check('first year: withdrawalsNet matches', approx(fy.withdrawalsNet, 12000), fy.withdrawalsNet);
+}
+
+// 21. First-year KESt: 50 % unrealized gains stay 50 % with zero growth.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 100000, startingCostBasis: 50000, monthlyContribution: 0,
+    yearsToRetirement: 0, monthlyWithdrawal: 1000, maxRetirementYears: 3,
+  });
+  const fy = simulate(p).summary.firstRetirementYear;
+  const gross = fy.sales.reduce((s, x) => s + x.gross, 0);
+  const kestPaid = fy.sales.reduce((s, x) => s + x.kest, 0);
+  const expGross = 12 * (1000 / (1 - 0.5 * 0.275));
+  check('first year: grossed-up sales', approx(gross, expGross, 1e-9), `${gross} != ${expGross}`);
+  check('first year: KESt = gross - net', approx(kestPaid, gross - 12000), kestPaid);
+}
+
+// 22. Dividends cover the withdrawal: no sales in the breakdown, keepsGrowing icon case.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 1000000, startingCostBasis: 1000000, monthlyContribution: 0,
+    yearsToRetirement: 0, monthlyWithdrawal: 2000,
+    assets: singleAsset({ dividendYield: 12 }),
+    maxRetirementYears: 2,
+  });
+  const s = simulate(p).summary;
+  check('dividends-only: no sales recorded', s.firstRetirementYear.sales.every((x) => x.gross === 0));
+  check('dividends-only: dividend KESt recorded', s.firstRetirementYear.dividends.kest > 0);
+  check('keepsGrowing flag set', s.keepsGrowing === true);
+}
+
+// 23. keepsGrowing is false when the portfolio depletes.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 10000, startingCostBasis: 10000, monthlyContribution: 0,
+    yearsToRetirement: 0, monthlyWithdrawal: 1000,
+  });
+  check('keepsGrowing false on depletion', simulate(p).summary.keepsGrowing === false);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

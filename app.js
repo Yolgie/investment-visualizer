@@ -401,28 +401,50 @@ function renderAssetChart(scenarios, params, displayReal) {
   }
 }
 
+// Draws each slice's share as a big percentage label inside the pie.
+const pieLabelPlugin = {
+  id: 'pieLabels',
+  afterDatasetsDraw(c) {
+    const data = c.data.datasets[0].data;
+    const total = data.reduce((s, v) => s + v, 0);
+    if (total <= 0) return;
+    const meta = c.getDatasetMeta(0);
+    const { ctx } = c;
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    meta.data.forEach((arc, i) => {
+      const pct = (data[i] / total) * 100;
+      if (pct < 4) return; // a label would not fit on a sliver
+      const pos = arc.getCenterPoint();
+      ctx.fillText(`${Math.round(pct)} %`, pos.x, pos.y);
+    });
+    ctx.restore();
+  },
+};
+
 function renderPie(scenarios, params, displayReal) {
   const s = scenarios.avg.summary;
   // Deflating divides all slices by the same factor, so proportions are
   // unchanged — only the tooltip amounts switch to today's purchasing power.
   const deflator = displayReal
     ? Math.pow(1 + params.inflation / 100, s.accumulationMonths / 12) : 1;
-  // The paid-in part of the starting amount is its cost basis ("invested capital
-  // thereof"); any pre-existing gains in the starting amount count as growth.
-  const paidInStart = Math.min(
-    Math.max(0, Math.min(params.startingCostBasis, params.startingAmount)),
+  // Paid-in money: the cost basis of the starting amount ("invested capital
+  // thereof") plus all monthly contributions. Pre-existing gains in the
+  // starting amount count as growth.
+  const paidIn = Math.min(
+    Math.max(0, Math.min(params.startingCostBasis, params.startingAmount))
+      + Math.max(0, s.totalContributions - params.startingAmount),
     s.atRetirement.value,
   );
-  const contributions = Math.min(
-    Math.max(0, s.totalContributions - params.startingAmount),
-    Math.max(0, s.atRetirement.value - paidInStart),
-  );
-  const growth = Math.max(0, s.atRetirement.value - paidInStart - contributions);
+  const growth = Math.max(0, s.atRetirement.value - paidIn);
   const data = {
-    labels: [t('pieStartingAmount'), t('pieContributions'), t('pieGrowth')],
+    labels: [t('pieContributions'), t('pieGrowth')],
     datasets: [{
-      data: [paidInStart / deflator, contributions / deflator, growth / deflator],
-      backgroundColor: ['rgba(100,116,139,0.7)', 'rgba(37,99,235,0.7)', 'rgba(22,163,74,0.7)'],
+      data: [paidIn / deflator, growth / deflator],
+      backgroundColor: ['rgba(37,99,235,0.7)', 'rgba(22,163,74,0.7)'],
     }],
   };
   const options = {
@@ -437,7 +459,7 @@ function renderPie(scenarios, params, displayReal) {
     pieChart.options = options;
     pieChart.update('none');
   } else {
-    pieChart = new Chart($('pieChart'), { type: 'pie', data, options });
+    pieChart = new Chart($('pieChart'), { type: 'pie', data, options, plugins: [pieLabelPlugin] });
   }
 }
 
@@ -493,11 +515,54 @@ function renderSummary(scenarios, params, displayReal) {
     card(t('summaryKestPaid'), fmtMoney(avg.summary.kestOnSales)),
     card(
       t('summaryLasts'),
-      lastsText(avg.summary, params),
+      (avg.summary.keepsGrowing
+        ? `<span class="grow-icon" title="${t('keepsGrowing')}">📈</span> ` : '')
+        + lastsText(avg.summary, params),
       `${lastsShort(min.summary, params)} – ${lastsShort(max.summary, params)}`,
     ),
   ];
   $('summary').innerHTML = cards.join('');
+}
+
+// Where the first retirement year's money comes from: sales per asset,
+// dividends, and the KESt withheld on each.
+function renderWithdrawalBreakdown(scenarios, params, displayReal) {
+  const s = scenarios.avg.summary;
+  const fy = s.firstRetirementYear;
+  const retMonth = s.accumulationMonths;
+  const d = (v) => fmtMoney(deflate(v, params, displayReal, retMonth));
+
+  const rows = [];
+  if (fy.dividends.gross > 0.5) {
+    rows.push({ label: t('wbDividends'), ...fy.dividends });
+  }
+  for (const sale of fy.sales) {
+    if (sale.gross <= 0.5) continue;
+    rows.push({
+      label: t('wbSalesOf').replace('{asset}', t(ASSET_LABEL_KEYS[sale.id] || sale.id)),
+      gross: sale.gross, net: sale.net, kest: sale.kest,
+    });
+  }
+  const total = rows.reduce(
+    (acc, r) => ({ gross: acc.gross + r.gross, kest: acc.kest + r.kest, net: acc.net + r.net }),
+    { gross: 0, kest: 0, net: 0 },
+  );
+
+  $('withdrawalTable').innerHTML = `
+    <thead><tr>
+      <th>${t('wbSource')}</th>
+      <th>${t('wbGross')}</th>
+      <th>${t('wbKest')}</th>
+      <th>${t('wbNet')}</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map((r) => `<tr>
+        <td>${r.label}</td><td>${d(r.gross)}</td><td>${d(r.kest)}</td><td>${d(r.net)}</td>
+      </tr>`).join('')}
+    </tbody>
+    <tfoot><tr>
+      <td>${t('wbTotal')}</td><td>${d(total.gross)}</td><td>${d(total.kest)}</td><td>${d(total.net)}</td>
+    </tr></tfoot>`;
 }
 
 function renderPerAsset(scenarios, params, displayReal) {
@@ -546,6 +611,7 @@ function recalc() {
   renderChart(scenarios, params, displayReal);
   renderAssetChart(scenarios, params, displayReal);
   renderSummary(scenarios, params, displayReal);
+  renderWithdrawalBreakdown(scenarios, params, displayReal);
   renderPerAsset(scenarios, params, displayReal);
   renderPie(scenarios, params, displayReal);
 }
