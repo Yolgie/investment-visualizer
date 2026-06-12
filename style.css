@@ -120,13 +120,16 @@ table input[type="number"] { min-width: 4.5rem; padding: 0.3rem 0.4rem; }
 }
 .storage-row .checkbox { margin-top: 0; }
 
-#resetDefaults {
+.button-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.button-row button {
   padding: 0.45rem 0.9rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card);
   cursor: pointer;
 }
+.button-row button:hover { border-color: var(--accent); color: var(--accent); }
 #resetDefaults:hover { border-color: var(--warn); color: var(--warn); }
 
 .chart-wrap { position: relative; height: 380px; }

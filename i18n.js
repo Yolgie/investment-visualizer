@@ -29,7 +29,7 @@ const I18N = {
     assetStocks: 'Aktien',
     assetDividendStocks: 'Dividendenaktien',
     sum: 'Summe',
-    allocationWarning: 'Die Anteile sollten in Summe 100 % ergeben.',
+    allocationWarning: 'Diese Spalten sollten in Summe 100 % ergeben: {columns}',
     allocationSwitch: 'Aufteilung der Sparrate ab Jahr X ändern',
     allocationSwitchYear: 'ab Jahr',
     allocationSwitchHint: 'Bestehende Positionen werden nicht verkauft — nur neue Sparraten folgen der zweiten Aufteilung.',
@@ -58,6 +58,11 @@ const I18N = {
     chartRetirement: 'Pensionsantritt',
     chartYear: 'Jahr',
     chartDividendsPerYear: 'Dividenden in diesem Jahr (netto)',
+    assetChartTitle: 'Vermögen nach Anlageklasse',
+
+    exportInputs: 'Eingaben exportieren',
+    importInputs: 'Eingaben importieren',
+    importError: 'Die Datei konnte nicht gelesen werden — ist es ein Export dieses Rechners?',
 
     pieTitle: 'Zusammensetzung bei Pensionsantritt',
     pieStartingAmount: 'Startkapital',
@@ -74,6 +79,8 @@ const I18N = {
     summaryLastsUntilAge: 'bis Jahr',
     summaryLastsForever: 'länger als die simulierten {years} Jahre',
     summaryLastsYears: '{years} Jahre der Entnahmephase (bis {endYear})',
+    summaryLastsShort: '{years} Jahre',
+    summaryLastsShortMore: '> {years} Jahre (Simulationsende)',
     summaryRange: 'Spanne',
     summaryKestPaid: 'KESt auf realisierte Kursgewinne (Verkäufe)',
 
@@ -109,7 +116,7 @@ const I18N = {
     assetStocks: 'Stocks',
     assetDividendStocks: 'Dividend stocks',
     sum: 'Sum',
-    allocationWarning: 'Shares should add up to 100 %.',
+    allocationWarning: 'These columns should add up to 100 %: {columns}',
     allocationSwitch: 'Change contribution split after year X',
     allocationSwitchYear: 'from year',
     allocationSwitchHint: 'Existing holdings are not sold — only new contributions follow the second split.',
@@ -138,6 +145,11 @@ const I18N = {
     chartRetirement: 'Retirement',
     chartYear: 'Year',
     chartDividendsPerYear: 'Dividends in this year (net)',
+    assetChartTitle: 'Portfolio by asset class',
+
+    exportInputs: 'Export inputs',
+    importInputs: 'Import inputs',
+    importError: 'Could not read the file — is it an export from this calculator?',
 
     pieTitle: 'Composition at retirement',
     pieStartingAmount: 'Starting amount',
@@ -154,6 +166,8 @@ const I18N = {
     summaryLastsUntilAge: 'until year',
     summaryLastsForever: 'longer than the simulated {years} years',
     summaryLastsYears: '{years} years of drawdown (until {endYear})',
+    summaryLastsShort: '{years} years',
+    summaryLastsShortMore: '> {years} years (end of simulation)',
     summaryRange: 'Range',
     summaryKestPaid: 'KESt on realized gains (sales)',
 
