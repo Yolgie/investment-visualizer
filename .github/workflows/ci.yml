@@ -17,3 +17,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
+      # The committed vendor/ copy must match the chart.js version from npm,
+      # so a Dependabot bump fails CI until `npm run sync-vendor` is re-run.
+      - name: Check vendored Chart.js is in sync
+        run: |
+          npm run sync-vendor
+          git diff --exit-code vendor/
