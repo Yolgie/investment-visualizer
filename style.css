@@ -130,6 +130,7 @@ table input[type="number"] { min-width: 4.5rem; padding: 0.3rem 0.4rem; }
 #resetDefaults:hover { border-color: var(--warn); color: var(--warn); }
 
 .chart-wrap { position: relative; height: 380px; }
+.pie-wrap { position: relative; height: 300px; max-width: 460px; margin: 0 auto; }
 
 .summary {
   display: grid;

@@ -49,7 +49,8 @@ function setFormValues(params, ui) {
     const asset = params.assets.find((a) => a.id === row.dataset.asset);
     if (!asset) continue;
     for (const input of row.querySelectorAll('input')) {
-      input.value = asset[input.dataset.field];
+      // Fall back for inputs stored before allocationStart existed.
+      input.value = asset[input.dataset.field] ?? asset.allocation ?? 0;
     }
   }
 }
@@ -128,22 +129,30 @@ function updateAllocationUI(params) {
     el.textContent = params.allocationSwitch.year;
   }
 
+  const startSum = params.assets.reduce((s, a) => s + a.allocationStart, 0);
   const sum = params.assets.reduce((s, a) => s + a.allocation, 0);
   const lateSum = params.assets.reduce((s, a) => s + a.allocationLate, 0);
+  const startSumEl = $('allocationStartSum');
   const sumEl = $('allocationSum');
   const lateSumEl = $('allocationLateSum');
+  startSumEl.textContent = `${startSum} %`;
   sumEl.textContent = `${sum} %`;
   lateSumEl.textContent = `${lateSum} %`;
+  const startBad = Math.abs(startSum - 100) > 0.01;
   const bad = Math.abs(sum - 100) > 0.01;
   const lateBad = lateVisible && Math.abs(lateSum - 100) > 0.01;
+  startSumEl.classList.toggle('sum-bad', startBad);
   sumEl.classList.toggle('sum-bad', bad);
   lateSumEl.classList.toggle('sum-bad', lateBad);
-  $('allocationWarning').classList.toggle('hidden', !(bad || lateBad));
+  $('allocationWarning').classList.toggle('hidden', !(startBad || bad || lateBad));
 }
 
 // -------------------------------------------------------------------- chart --
 
 let chart = null;
+let pieChart = null;
+// Context for the tooltip's dividends-per-year line, refreshed on every render.
+let tooltipData = null;
 
 const retirementLinePlugin = {
   id: 'retirementLine',
@@ -175,9 +184,22 @@ function toSeries(months, inflation, displayReal, pick) {
   });
 }
 
+// Net dividends received during the calendar year that contains the given month record.
+function dividendsInYearOf(month) {
+  if (!tooltipData) return 0;
+  const yearIdx = Math.max(0, Math.ceil(month / 12) - 1);
+  return tooltipData.months.reduce((sum, r) => {
+    if (r.month === 0 || Math.ceil(r.month / 12) - 1 !== yearIdx) return sum;
+    const deflator = tooltipData.displayReal
+      ? Math.pow(1 + tooltipData.inflation / 100, r.month / 12) : 1;
+    return sum + r.dividends / deflator;
+  }, 0);
+}
+
 function renderChart(scenarios, params, displayReal) {
   const { avg, min, max } = scenarios;
   const infl = params.inflation;
+  tooltipData = { months: avg.months, inflation: infl, displayReal };
 
   const basisAvg = toSeries(avg.months, infl, displayReal, (m) => Math.min(m.basis, m.value));
   const totalAvg = toSeries(avg.months, infl, displayReal, (m) => m.value);
@@ -234,6 +256,11 @@ function renderChart(scenarios, params, displayReal) {
         callbacks: {
           title: (items) => `${t('chartYear')} ${Math.round(items[0].parsed.x)}`,
           label: (item) => `${item.dataset.label}: ${fmtMoney(item.parsed.y)}`,
+          afterBody: (items) => {
+            const month = Math.round((items[0].parsed.x - START_YEAR) * 12);
+            const perYear = dividendsInYearOf(month);
+            return perYear > 0.5 ? `${t('chartDividendsPerYear')}: ${fmtMoney(perYear)}` : '';
+          },
         },
       },
     },
@@ -250,6 +277,41 @@ function renderChart(scenarios, params, displayReal) {
       options,
       plugins: [retirementLinePlugin],
     });
+  }
+}
+
+function renderPie(scenarios, params, displayReal) {
+  const s = scenarios.avg.summary;
+  // Deflating divides all slices by the same factor, so proportions are
+  // unchanged — only the tooltip amounts switch to today's purchasing power.
+  const deflator = displayReal
+    ? Math.pow(1 + params.inflation / 100, s.accumulationMonths / 12) : 1;
+  const starting = Math.min(params.startingAmount, s.atRetirement.value);
+  const contributions = Math.min(
+    Math.max(0, s.totalContributions - params.startingAmount),
+    Math.max(0, s.atRetirement.value - starting),
+  );
+  const growth = Math.max(0, s.atRetirement.value - s.totalContributions);
+  const data = {
+    labels: [t('pieStartingAmount'), t('pieContributions'), t('pieGrowth')],
+    datasets: [{
+      data: [starting / deflator, contributions / deflator, growth / deflator],
+      backgroundColor: ['rgba(100,116,139,0.7)', 'rgba(37,99,235,0.7)', 'rgba(22,163,74,0.7)'],
+    }],
+  };
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      tooltip: { callbacks: { label: (item) => `${item.label}: ${fmtMoney(item.parsed)}` } },
+    },
+  };
+  if (pieChart) {
+    pieChart.data = data;
+    pieChart.options = options;
+    pieChart.update('none');
+  } else {
+    pieChart = new Chart($('pieChart'), { type: 'pie', data, options });
   }
 }
 
@@ -293,6 +355,7 @@ function renderSummary(scenarios, params, displayReal) {
       `${d(min.summary.totalGrowth)} – ${d(max.summary.totalGrowth)}`,
     ),
     card(t('summaryDividends'), fmtMoney(avg.summary.dividends.net)),
+    card(t('summaryDividendsPerYear'), d(avg.summary.dividendsPerYearAtRetirement)),
     card(t('summaryKestPaid'), fmtMoney(avg.summary.kestOnSales)),
     card(
       t('summaryLasts'),
@@ -349,6 +412,7 @@ function recalc() {
   renderChart(scenarios, params, displayReal);
   renderSummary(scenarios, params, displayReal);
   renderPerAsset(scenarios, params, displayReal);
+  renderPie(scenarios, params, displayReal);
 }
 
 function init() {

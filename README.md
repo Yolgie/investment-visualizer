@@ -9,10 +9,15 @@ files, ready for GitHub Pages.
 - Accumulation phase: starting amount (with separate cost basis), monthly
   contributions, optional annual contribution increase (% or €)
 - Portfolio split across asset classes (ETFs, bonds, stocks, dividend stocks),
-  each with its own allocation, price return, dividend yield and TER
+  each with its own price return, dividend yield and TER, and three separate
+  allocations: current holdings (starting amount), current contributions, and
+  an optional future contribution split from year X
 - Dividends mechanic: distributions are taxed immediately at KESt and can be
   reinvested during accumulation; in retirement they cover the withdrawal
-  before anything is sold
+  before anything is sold. The chart tooltip shows net dividends per year,
+  and the summary shows the annual dividend income at retirement
+- Composition pie chart at retirement: starting amount vs. contributions vs.
+  growth
 - Optional allocation switch: redirect new contributions to a second split
   from year X (e.g. more dividend stocks near retirement) — without selling
   existing holdings (no tax event)
