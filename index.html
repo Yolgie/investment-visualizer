@@ -59,6 +59,7 @@
             <thead>
               <tr>
                 <th data-i18n="asset"></th>
+                <th data-i18n="allocationStart"></th>
                 <th data-i18n="allocation"></th>
                 <th class="late-col hidden"><span data-i18n="allocationLate"></span> <span class="switch-year-label"></span></th>
                 <th data-i18n="annualReturn"></th>
@@ -69,6 +70,7 @@
             <tbody>
               <tr data-asset="etf">
                 <td data-i18n="assetEtf"></td>
+                <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
@@ -77,6 +79,7 @@
               </tr>
               <tr data-asset="bonds">
                 <td data-i18n="assetBonds"></td>
+                <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
@@ -85,6 +88,7 @@
               </tr>
               <tr data-asset="stocks">
                 <td data-i18n="assetStocks"></td>
+                <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
@@ -93,6 +97,7 @@
               </tr>
               <tr data-asset="dividendStocks">
                 <td data-i18n="assetDividendStocks"></td>
+                <td><input type="number" data-field="allocationStart" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="allocation" min="0" max="100" step="5"></td>
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
@@ -103,6 +108,7 @@
             <tfoot>
               <tr>
                 <td data-i18n="sum"></td>
+                <td id="allocationStartSum"></td>
                 <td id="allocationSum"></td>
                 <td class="late-col hidden" id="allocationLateSum"></td>
                 <td colspan="3"></td>
@@ -191,6 +197,13 @@
       <h2 data-i18n="perAssetAtRetirement"></h2>
       <div class="table-wrap">
         <table id="perAssetTable"></table>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="pieTitle"></h2>
+      <div class="pie-wrap">
+        <canvas id="pieChart"></canvas>
       </div>
     </section>
   </main>

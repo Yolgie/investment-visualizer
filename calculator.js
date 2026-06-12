@@ -16,13 +16,15 @@ const DEFAULT_PARAMS = {
   contributionIncrease: { value: 0, unit: 'percent' },
   yearsToRetirement: 30,
 
-  // allocation/allocationLate in %, must sum to 100 across assets (UI warns; math normalizes).
+  // allocationStart splits the starting amount, allocation the monthly contributions,
+  // allocationLate the contributions after the switch year. Each in %, should sum to
+  // 100 across assets (UI warns; math normalizes).
   // annualReturn = price appreciation, dividendYield = distributions, ter = fund costs; all % p.a.
   assets: [
-    { id: 'etf', allocation: 70, allocationLate: 50, annualReturn: 6.5, dividendYield: 0, ter: 0.2 },
-    { id: 'bonds', allocation: 10, allocationLate: 10, annualReturn: 2.5, dividendYield: 0, ter: 0.1 },
-    { id: 'stocks', allocation: 10, allocationLate: 10, annualReturn: 7, dividendYield: 0, ter: 0 },
-    { id: 'dividendStocks', allocation: 10, allocationLate: 30, annualReturn: 4, dividendYield: 3, ter: 0 },
+    { id: 'etf', allocationStart: 70, allocation: 70, allocationLate: 50, annualReturn: 6.5, dividendYield: 0, ter: 0.2 },
+    { id: 'bonds', allocationStart: 10, allocation: 10, allocationLate: 10, annualReturn: 2.5, dividendYield: 0, ter: 0.1 },
+    { id: 'stocks', allocationStart: 10, allocation: 10, allocationLate: 10, annualReturn: 7, dividendYield: 0, ter: 0 },
+    { id: 'dividendStocks', allocationStart: 10, allocation: 10, allocationLate: 30, annualReturn: 4, dividendYield: 3, ter: 0 },
   ],
   // From year `year` on, contributions are split by allocationLate instead of allocation.
   // Existing holdings are never sold/rebalanced (no tax event).
@@ -48,7 +50,11 @@ function withDefaults(partial) {
   const p = Object.assign({}, DEFAULT_PARAMS, partial);
   p.contributionIncrease = Object.assign({}, DEFAULT_PARAMS.contributionIncrease, partial && partial.contributionIncrease);
   p.allocationSwitch = Object.assign({}, DEFAULT_PARAMS.allocationSwitch, partial && partial.allocationSwitch);
-  p.assets = (p.assets || DEFAULT_PARAMS.assets).map((a) => Object.assign({}, a));
+  p.assets = (p.assets || DEFAULT_PARAMS.assets).map((a) => {
+    const asset = Object.assign({}, a);
+    if (asset.allocationStart == null) asset.allocationStart = asset.allocation;
+    return asset;
+  });
   return p;
 }
 
@@ -58,12 +64,15 @@ function monthlyRate(annualPercent) {
   return Math.pow(1 + annual, 1 / 12) - 1;
 }
 
-function activeAllocation(params, year) {
-  const late = params.allocationSwitch.enabled && year >= params.allocationSwitch.year;
-  const weights = params.assets.map((a) => (late ? a.allocationLate : a.allocation));
+function normalizeWeights(weights) {
   const sum = weights.reduce((s, w) => s + w, 0);
   if (sum <= 0) return weights.map(() => 1 / weights.length);
   return weights.map((w) => w / sum);
+}
+
+function activeAllocation(params, year) {
+  const late = params.allocationSwitch.enabled && year >= params.allocationSwitch.year;
+  return normalizeWeights(params.assets.map((a) => (late ? a.allocationLate : a.allocation)));
 }
 
 // Net proceeds if the whole portfolio were sold today (KESt on gains only).
@@ -90,9 +99,9 @@ function simulate(rawParams, scenarioShift = 0) {
     dividendRate: a.dividendYield / 100 / 12,
   }));
 
-  // Starting amount is split like the initial contributions; its cost basis is
-  // distributed proportionally (capped at the starting amount).
-  const startWeights = activeAllocation(params, 0);
+  // Starting amount has its own allocation (the current holdings); its cost basis
+  // is distributed proportionally (capped at the starting amount).
+  const startWeights = normalizeWeights(params.assets.map((a) => a.allocationStart));
   const startBasis = Math.min(Math.max(params.startingCostBasis, 0), params.startingAmount);
   buckets.forEach((b, i) => {
     b.value = params.startingAmount * startWeights[i];
@@ -110,8 +119,12 @@ function simulate(rawParams, scenarioShift = 0) {
   const totalValue = () => buckets.reduce((s, b) => s + b.value, 0);
   const totalBasis = () => buckets.reduce((s, b) => s + b.basis, 0);
 
-  const record = (month, phase) => {
-    months.push({ month, value: totalValue(), basis: totalBasis(), contributions: totalContributions, phase });
+  const record = (month, phase, dividends = 0) => {
+    months.push({
+      month, value: totalValue(), basis: totalBasis(), contributions: totalContributions,
+      dividends, // net dividends received in this month
+      phase,
+    });
   };
 
   // Pays this month's dividends on every bucket; KESt is withheld immediately.
@@ -170,11 +183,15 @@ function simulate(rawParams, scenarioShift = 0) {
     else dividendsPaidOut += net;
 
     applyGrowth();
-    record(m + 1, 'accumulation');
+    record(m + 1, 'accumulation', net);
   }
 
   const valueAtRetirement = totalValue();
   const basisAtRetirement = totalBasis();
+  // Net dividend income per year the portfolio yields at the moment of retirement.
+  const dividendsPerYearAtRetirement = buckets.reduce(
+    (s, b) => s + b.value * b.dividendRate * 12 * (1 - kest), 0,
+  );
   const atRetirement = {
     value: valueAtRetirement,
     basis: basisAtRetirement,
@@ -242,12 +259,12 @@ function simulate(rawParams, scenarioShift = 0) {
       // Portfolio exhausted this month.
       buckets.forEach((b) => { b.value = 0; b.basis = 0; });
       runOutMonth = absMonth;
-      record(absMonth + 1, 'drawdown');
+      record(absMonth + 1, 'drawdown', netDividends);
       break;
     }
 
     applyGrowth();
-    record(absMonth + 1, 'drawdown');
+    record(absMonth + 1, 'drawdown', netDividends);
   }
 
   return {
@@ -258,6 +275,7 @@ function simulate(rawParams, scenarioShift = 0) {
       totalContributions,
       totalGrowth: valueAtRetirement - totalContributions,
       dividends: { gross: dividendsGross, net: dividendsNet, paidOut: dividendsPaidOut },
+      dividendsPerYearAtRetirement,
       kestOnDividends,
       kestOnSales,
       runOutMonth,

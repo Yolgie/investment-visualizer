@@ -21,7 +21,8 @@ function approx(a, b, eps = 1e-6) {
 
 function singleAsset(over = {}) {
   return [Object.assign({
-    id: 'a', allocation: 100, allocationLate: 100, annualReturn: 0, dividendYield: 0, ter: 0,
+    id: 'a', allocationStart: 100, allocation: 100, allocationLate: 100,
+    annualReturn: 0, dividendYield: 0, ter: 0,
   }, over)];
 }
 
@@ -203,6 +204,55 @@ const base = {
     perAsset.early.value);
   check('allocation switch: late bucket holds year-1 contributions', approx(perAsset.late.value, 1200),
     perAsset.late.value);
+}
+
+// 13. allocationStart splits the starting amount independently of contributions.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 5000, startingCostBasis: 5000, monthlyContribution: 100, yearsToRetirement: 1,
+    assets: [
+      { id: 'hold', allocationStart: 100, allocation: 0, allocationLate: 0, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'save', allocationStart: 0, allocation: 100, allocationLate: 100, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  });
+  const r = simulate(p);
+  const perAsset = Object.fromEntries(r.summary.atRetirement.perAsset.map((x) => [x.id, x]));
+  check('allocationStart: starting amount in hold bucket', approx(perAsset.hold.value, 5000), perAsset.hold.value);
+  check('allocationStart: contributions in save bucket', approx(perAsset.save.value, 1200), perAsset.save.value);
+}
+
+// 13b. Assets without allocationStart fall back to the contribution allocation.
+{
+  const p = Object.assign({}, base, {
+    assets: [{ id: 'a', allocation: 100, allocationLate: 100, annualReturn: 0, dividendYield: 0, ter: 0 }],
+  });
+  const r = simulate(p);
+  check('allocationStart fallback to allocation', approx(r.summary.atRetirement.value, 10000 + 500 * 360),
+    r.summary.atRetirement.value);
+}
+
+// 14. dividendsPerYearAtRetirement: net annual dividend income on the retirement-day value.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 10000, startingCostBasis: 10000, monthlyContribution: 0, yearsToRetirement: 1,
+    reinvestDividends: false, // value stays 10 000 with zero price return
+    assets: singleAsset({ dividendYield: 12 }),
+  });
+  const r = simulate(p);
+  const expected = 10000 * 0.12 * (1 - 0.275);
+  check('dividends per year at retirement', approx(r.summary.dividendsPerYearAtRetirement, expected),
+    `${r.summary.dividendsPerYearAtRetirement} != ${expected}`);
+}
+
+// 15. Monthly records carry the net dividends; they add up to the summary total.
+{
+  const p = Object.assign({}, base, {
+    yearsToRetirement: 2, assets: singleAsset({ dividendYield: 4 }), maxRetirementYears: 1,
+  });
+  const r = simulate(p);
+  const recorded = r.months.reduce((s, m) => s + m.dividends, 0);
+  check('monthly dividend records sum to total', approx(recorded, r.summary.dividends.net),
+    `${recorded} != ${r.summary.dividends.net}`);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
