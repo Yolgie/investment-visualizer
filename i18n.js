@@ -67,8 +67,7 @@ const I18N = {
     importError: 'Die Datei konnte nicht gelesen werden — ist es ein Export dieses Rechners?',
 
     pieTitle: 'Zusammensetzung bei Pensionsantritt',
-    pieStartingAmount: 'Eingezahltes Startkapital',
-    pieContributions: 'Sparraten',
+    pieContributions: 'Eingezahltes Kapital',
     pieGrowth: 'Wertzuwachs',
 
     summaryAtRetirement: 'Vermögen bei Pensionsantritt',
@@ -85,6 +84,16 @@ const I18N = {
     summaryLastsShortMore: '> {years} Jahre (Simulationsende)',
     summaryRange: 'Spanne',
     summaryKestPaid: 'KESt auf realisierte Kursgewinne (Verkäufe)',
+
+    withdrawalBreakdownTitle: 'Entnahmen im ersten Pensionsjahr',
+    wbSource: 'Quelle',
+    wbGross: 'Brutto',
+    wbKest: 'KESt',
+    wbNet: 'Netto',
+    wbDividends: 'Dividenden',
+    wbSalesOf: 'Verkauf {asset}',
+    wbTotal: 'Gesamt',
+    keepsGrowing: 'Das Portfolio wächst trotz Entnahmen weiter',
 
     perAssetAtRetirement: 'Aufteilung bei Pensionsantritt',
     disclaimer: 'Vereinfachtes Modell — keine Steuer- oder Anlageberatung. Ausschüttungsgleiche Erträge thesaurierender Fonds sind nicht berücksichtigt.',
@@ -156,8 +165,7 @@ const I18N = {
     importError: 'Could not read the file — is it an export from this calculator?',
 
     pieTitle: 'Composition at retirement',
-    pieStartingAmount: 'Paid-in starting capital',
-    pieContributions: 'Contributions',
+    pieContributions: 'Paid-in capital',
     pieGrowth: 'Growth',
 
     summaryAtRetirement: 'Portfolio at retirement',
@@ -174,6 +182,16 @@ const I18N = {
     summaryLastsShortMore: '> {years} years (end of simulation)',
     summaryRange: 'Range',
     summaryKestPaid: 'KESt on realized gains (sales)',
+
+    withdrawalBreakdownTitle: 'Withdrawals in the first retirement year',
+    wbSource: 'Source',
+    wbGross: 'Gross',
+    wbKest: 'KESt',
+    wbNet: 'Net',
+    wbDividends: 'Dividends',
+    wbSalesOf: 'Sale of {asset}',
+    wbTotal: 'Total',
+    keepsGrowing: 'The portfolio keeps growing despite withdrawals',
 
     perAssetAtRetirement: 'Breakdown at retirement',
     disclaimer: 'Simplified model — not tax or investment advice. Annual taxation of accumulating funds (ausschüttungsgleiche Erträge) is not modeled.',

@@ -16,8 +16,12 @@ files, ready for GitHub Pages.
   reinvested during accumulation; in retirement they cover the withdrawal
   before anything is sold. The chart tooltip shows net dividends per year,
   and the summary shows the annual dividend income at retirement
-- Composition pie chart at retirement: starting amount vs. contributions vs.
-  growth
+- Composition pie chart at retirement (paid-in capital vs. growth, with
+  percentage labels); pre-existing gains in the starting amount count as growth
+- Withdrawal breakdown for the first retirement year: dividends and sales per
+  asset, each with gross / KESt / net
+- A growth icon on the "money lasts" card when the portfolio keeps growing
+  despite the withdrawals
 - Optional allocation switch: redirect new contributions to a second split
   from year X (e.g. more dividend stocks near retirement) — without selling
   existing holdings (no tax event)

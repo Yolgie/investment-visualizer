@@ -136,19 +136,22 @@ function simulate(rawParams, scenarioShift = 0) {
   };
 
   // Pays this month's dividends on every bucket; KESt is withheld immediately.
-  // Returns total net dividends paid this month (not yet reinvested).
+  // Returns this month's { net, gross, tax } (net not yet reinvested).
   const payDividends = () => {
     let net = 0;
+    let gross = 0;
+    let tax = 0;
     for (const b of buckets) {
-      const gross = b.value * b.dividendRate;
-      if (gross <= 0) continue;
-      const tax = gross * kest;
-      dividendsGross += gross;
-      kestOnDividends += tax;
-      net += gross - tax;
+      const g = b.value * b.dividendRate;
+      if (g <= 0) continue;
+      gross += g;
+      tax += g * kest;
+      net += g - g * kest;
     }
+    dividendsGross += gross;
+    kestOnDividends += tax;
     dividendsNet += net;
-    return net;
+    return { net, gross, tax };
   };
 
   const applyGrowth = () => {
@@ -186,7 +189,7 @@ function simulate(rawParams, scenarioShift = 0) {
     });
     totalContributions += contribution;
 
-    const net = payDividends();
+    const { net } = payDividends();
     if (params.reinvestDividends) reinvest(net);
     else dividendsPaidOut += net;
 
@@ -216,15 +219,30 @@ function simulate(rawParams, scenarioShift = 0) {
   const drawdownMonths = Math.round(params.maxRetirementYears * 12);
   let runOutMonth = null; // absolute month index (from t=0) when the money is gone
 
+  // Where the money comes from in the first year of retirement — makes the
+  // withdrawal mechanics explicit (sales per asset, dividends, KESt).
+  const firstRetirementYear = {
+    withdrawalsNet: 0,
+    dividends: { gross: 0, net: 0, kest: 0 },
+    sales: buckets.map((b) => ({ id: b.id, gross: 0, net: 0, kest: 0 })),
+  };
+
   for (let m = 0; m < drawdownMonths; m++) {
     const absMonth = accumulationMonths + m;
+    const inFirstYear = m < 12;
     let target = params.monthlyWithdrawal;
     if (params.withdrawalInflationAdjusted) {
       target *= Math.pow(1 + params.inflation / 100, absMonth / 12);
     }
 
     // 1. Dividends keep being paid; they cover the withdrawal first.
-    const netDividends = payDividends();
+    const div = payDividends();
+    const netDividends = div.net;
+    if (inFirstYear) {
+      firstRetirementYear.dividends.gross += div.gross;
+      firstRetirementYear.dividends.net += div.net;
+      firstRetirementYear.dividends.kest += div.tax;
+    }
     let needNet = target - netDividends;
     if (needNet < 0) {
       reinvest(-needNet); // surplus dividends flow back into the portfolio
@@ -252,22 +270,33 @@ function simulate(rawParams, scenarioShift = 0) {
         const gainFrac = b.value > 0 ? Math.max(0, (b.value - b.basis) / b.value) : 0;
         let gross = netWanted / (1 - gainFrac * kest);
         let net;
+        let tax;
         if (gross >= b.value) {
           // Sell the whole bucket.
-          const tax = Math.max(0, b.value - b.basis) * kest;
+          gross = b.value;
+          tax = Math.max(0, b.value - b.basis) * kest;
           net = b.value - tax;
-          kestOnSales += tax;
           b.value = 0;
           b.basis = 0;
         } else {
-          const tax = gross * gainFrac * kest;
+          tax = gross * gainFrac * kest;
           net = gross - tax;
-          kestOnSales += tax;
           b.basis -= b.basis * (gross / (b.value || 1));
           b.value -= gross;
         }
+        kestOnSales += tax;
+        if (inFirstYear) {
+          const fy = firstRetirementYear.sales[buckets.indexOf(b)];
+          fy.gross += gross;
+          fy.net += net;
+          fy.kest += tax;
+        }
         needNet -= net;
       }
+    }
+
+    if (inFirstYear) {
+      firstRetirementYear.withdrawalsNet += target - Math.max(0, needNet);
     }
 
     if (needNet > 1e-6) {
@@ -297,6 +326,9 @@ function simulate(rawParams, scenarioShift = 0) {
       // Years the withdrawal lasted; null means it survived the whole simulated cap.
       lastsYears: runOutMonth === null ? null : (runOutMonth - accumulationMonths) / 12,
       finalValue: totalValue(),
+      // The portfolio ends the simulation higher than it started retirement.
+      keepsGrowing: runOutMonth === null && totalValue() > valueAtRetirement,
+      firstRetirementYear,
     },
   };
 }
