@@ -3,6 +3,7 @@
 const js = require('@eslint/js');
 
 module.exports = [
+  { ignores: ['vendor/'] },
   js.configs.recommended,
   {
     files: ['calculator.js', 'i18n.js', 'app.js'],

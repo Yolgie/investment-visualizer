@@ -34,8 +34,9 @@ files, ready for GitHub Pages.
 python3 -m http.server   # then open http://localhost:8000
 ```
 
-(Opening `index.html` directly also works; Chart.js is loaded from a CDN, so
-you need to be online.)
+Chart.js is vendored in `vendor/` (copied from the npm package), so the site
+is fully offline-capable — opening `index.html` directly works without a
+network connection.
 
 ## Tests & lint
 
@@ -56,9 +57,19 @@ npm run lint  # eslint
 
 Everything is editable on the page: KESt rate (default 27.5 %), inflation,
 per-asset returns / dividend yields / TER, scenario spread, simulated
-retirement duration. Chart.js is pinned to a fixed version via CDN URL in
-`index.html` — bumping it is a manual edit (Dependabot only covers the npm dev
-dependencies and GitHub Actions).
+retirement duration.
+
+## Updating Chart.js
+
+Chart.js comes from npm and is committed as a static copy in `vendor/`.
+Dependabot opens PRs for new versions; after a bump, run
+
+```sh
+npm ci && npm run sync-vendor
+```
+
+and commit the result. CI fails if `vendor/` is out of sync with the
+installed npm version.
 
 ## Future ideas
 

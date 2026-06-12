@@ -6,9 +6,14 @@
   "license": "MIT",
   "scripts": {
     "test": "node test.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "sync-vendor": "node -e \"const fs=require('fs');fs.mkdirSync('vendor',{recursive:true});for(const f of ['chart.umd.js','chart.umd.js.map'])fs.copyFileSync('node_modules/chart.js/dist/'+f,'vendor/'+f)\""
   },
   "devDependencies": {
-    "eslint": "^9.17.0"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1"
+  },
+  "dependencies": {
+    "chart.js": "4.4.7"
   }
 }
