@@ -14,7 +14,9 @@
 
 body {
   margin: 0 auto;
-  max-width: 1000px;
+  /* Wide by default (50 % more than the old 1000px) so the layout fills more of
+     a half-tiled ultrawide window; on very wide screens it grows to 2000px. */
+  max-width: 1500px;
   padding: 1rem 1.25rem 3rem;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
@@ -53,8 +55,21 @@ section, details {
 }
 
 h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
+.subhead { margin: 1.25rem 0 0.5rem; font-size: 1rem; }
 summary { font-weight: 600; cursor: pointer; }
-details > .grid { margin-top: 0.75rem; }
+details > .grid, details > .table-wrap { margin-top: 0.75rem; }
+
+/* Two-up layouts: the input boxes (accumulation | drawdown & goal) and the two
+   main charts sit side by side on wide screens and stack on narrow ones. Grid
+   items stretch to equal height, so paired boxes line up. */
+.form-grid, .chart-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 1rem;
+}
+@media (min-width: 900px) {
+  .form-grid, .chart-grid { grid-template-columns: 1fr 1fr; }
+}
 
 .grid {
   display: grid;
@@ -185,4 +200,9 @@ footer { margin-top: 1.5rem; color: var(--muted); font-size: 0.8rem; }
 @media (max-width: 600px) {
   body { padding: 0.75rem 0.75rem 2rem; }
   .chart-wrap { height: 280px; }
+}
+
+/* Very wide screens (e.g. an ultrawide at full width): twice the old width. */
+@media (min-width: 2080px) {
+  body { max-width: 2000px; }
 }

@@ -19,6 +19,7 @@
   <main>
     <form id="inputs" autocomplete="off">
 
+      <div class="form-grid">
       <section>
         <h2 data-i18n="savingsPhase"></h2>
         <div class="grid">
@@ -53,7 +54,39 @@
       </section>
 
       <section>
-        <h2 data-i18n="portfolio"></h2>
+        <h2 data-i18n="retirementPhase"></h2>
+        <div class="grid">
+          <label>
+            <span data-i18n="monthlyWithdrawal"></span>
+            <input type="number" id="monthlyWithdrawal" min="0" step="100">
+          </label>
+        </div>
+        <label class="checkbox">
+          <input type="checkbox" id="withdrawalInflationAdjusted">
+          <span data-i18n="withdrawalInflationAdjusted"></span>
+        </label>
+
+        <h3 class="subhead" data-i18n="targetSection"></h3>
+        <div class="grid">
+          <label>
+            <span data-i18n="goalType"></span>
+            <select id="goalType">
+              <option value="amount" data-i18n="goalTypeAmount"></option>
+              <option value="stableValue" data-i18n="goalTypeStable"></option>
+            </select>
+          </label>
+          <label id="targetAmountRow">
+            <span data-i18n="targetAmount"></span>
+            <input type="number" id="targetAmount" min="0" step="50000">
+            <small data-i18n="targetAmountHint"></small>
+          </label>
+        </div>
+        <p class="hint hidden" id="goalStableHint" data-i18n="goalTypeStableHint"></p>
+      </section>
+      </div>
+
+      <details id="portfolioSection">
+        <summary data-i18n="portfolio"></summary>
         <div class="table-wrap">
           <table id="allocationTable">
             <thead>
@@ -144,40 +177,7 @@
           <input type="checkbox" id="reinvestDividends">
           <span data-i18n="reinvestDividends"></span>
         </label>
-      </section>
-
-      <section>
-        <h2 data-i18n="retirementPhase"></h2>
-        <div class="grid">
-          <label>
-            <span data-i18n="monthlyWithdrawal"></span>
-            <input type="number" id="monthlyWithdrawal" min="0" step="100">
-          </label>
-        </div>
-        <label class="checkbox">
-          <input type="checkbox" id="withdrawalInflationAdjusted">
-          <span data-i18n="withdrawalInflationAdjusted"></span>
-        </label>
-      </section>
-
-      <section>
-        <h2 data-i18n="targetSection"></h2>
-        <div class="grid">
-          <label>
-            <span data-i18n="goalType"></span>
-            <select id="goalType">
-              <option value="amount" data-i18n="goalTypeAmount"></option>
-              <option value="stableValue" data-i18n="goalTypeStable"></option>
-            </select>
-          </label>
-          <label id="targetAmountRow">
-            <span data-i18n="targetAmount"></span>
-            <input type="number" id="targetAmount" min="0" step="50000">
-            <small data-i18n="targetAmountHint"></small>
-          </label>
-        </div>
-        <p class="hint hidden" id="goalStableHint" data-i18n="goalTypeStableHint"></p>
-      </section>
+      </details>
 
       <details id="parametersSection">
         <summary data-i18n="parameters"></summary>
@@ -225,23 +225,25 @@
       </div>
     </form>
 
-    <section class="chart-section">
-      <h2 data-i18n="chartTitle"></h2>
-      <label class="checkbox chart-option">
-        <input type="checkbox" id="logScale">
-        <span data-i18n="chartLogScale"></span>
-      </label>
-      <div class="chart-wrap">
-        <canvas id="chart"></canvas>
-      </div>
-    </section>
+    <div class="chart-grid">
+      <section class="chart-section">
+        <h2 data-i18n="chartTitle"></h2>
+        <label class="checkbox chart-option">
+          <input type="checkbox" id="logScale">
+          <span data-i18n="chartLogScale"></span>
+        </label>
+        <div class="chart-wrap">
+          <canvas id="chart"></canvas>
+        </div>
+      </section>
 
-    <section class="chart-section">
-      <h2 data-i18n="assetChartTitle"></h2>
-      <div class="chart-wrap">
-        <canvas id="assetChart"></canvas>
-      </div>
-    </section>
+      <section class="chart-section">
+        <h2 data-i18n="assetChartTitle"></h2>
+        <div class="chart-wrap">
+          <canvas id="assetChart"></canvas>
+        </div>
+      </section>
+    </div>
 
     <section class="chart-section">
       <h2 data-i18n="mcTitle"></h2>

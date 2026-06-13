@@ -498,7 +498,7 @@ const base = {
   check('compat: targetAmount default filled', p.targetAmount === DEFAULT_PARAMS.targetAmount, p.targetAmount);
   check('compat: goalType defaults to amount', p.goalType === 'amount', p.goalType);
   check('compat: contributionIncrease default filled',
-    p.contributionIncrease.value === 0 && p.contributionIncrease.unit === 'percent');
+    p.contributionIncrease.value === 2 && p.contributionIncrease.unit === 'percent');
   check('compat: allocationSwitch default filled',
     p.allocationSwitch.enabled === false && p.allocationSwitch.year === DEFAULT_PARAMS.allocationSwitch.year);
   const r = simulate(legacy);

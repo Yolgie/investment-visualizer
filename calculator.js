@@ -119,7 +119,8 @@ const DEFAULT_PARAMS = {
   startingCostBasis: 10000,
   monthlyContribution: 500,
   // Applied at every year boundary during accumulation. unit: 'percent' | 'amount'
-  contributionIncrease: { value: 0, unit: 'percent' },
+  // Defaults to 2 %/yr so contributions keep pace with the default inflation.
+  contributionIncrease: { value: 2, unit: 'percent' },
   yearsToRetirement: 30,
 
   // allocationStart splits the starting amount, allocation the monthly contributions,
@@ -130,11 +131,14 @@ const DEFAULT_PARAMS = {
   // dispersion; 0 means a deterministic asset). withdrawalShare: which assets are sold to
   // fund the retirement withdrawal (in %, should sum to 100). Once those run dry, selling
   // falls back to the remaining assets proportionally by value.
+  // Default portfolio is ETFs only — a single broad index fund. The other asset
+  // classes ship at 0 % so they stay available in the (collapsible) allocation
+  // table without complicating the out-of-the-box projection.
   assets: [
-    { id: 'etf', allocationStart: 70, allocation: 70, allocationLate: 50, withdrawalShare: 90, annualReturn: 6.5, dividendYield: 0, ter: 0.2, volatility: 15 },
-    { id: 'bonds', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1, volatility: 5 },
-    { id: 'stocks', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 10, annualReturn: 7, dividendYield: 0, ter: 0, volatility: 20 },
-    { id: 'dividendStocks', allocationStart: 10, allocation: 10, allocationLate: 30, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0, volatility: 14 },
+    { id: 'etf', allocationStart: 100, allocation: 100, allocationLate: 100, withdrawalShare: 100, annualReturn: 6.5, dividendYield: 0, ter: 0.2, volatility: 15 },
+    { id: 'bonds', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1, volatility: 5 },
+    { id: 'stocks', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 7, dividendYield: 0, ter: 0, volatility: 20 },
+    { id: 'dividendStocks', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0, volatility: 14 },
   ],
   // From year `year` on, contributions are split by allocationLate instead of allocation.
   // Existing holdings are never sold/rebalanced (no tax event).
