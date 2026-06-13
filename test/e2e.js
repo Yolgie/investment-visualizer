@@ -305,6 +305,63 @@ const scenarios = [
     const reached = await page.locator('#targetIntro').textContent();
     expect('stable: rich setup holds its real value', reached.includes('Real value holds up'), reached);
   },
+
+  // 15. Monte Carlo: the on-demand run renders the chart, percentile cards,
+  //     best/worst callouts and the percentile goal-seek; the log toggle redraws it.
+  async ({ page }, expect) => {
+    await page.locator('#parametersSection').evaluate((d) => { d.open = true; });
+    await page.fill('#monteCarloRuns', '60');
+    expect('mc: results hidden before running', await page.locator('#mcResults').isHidden());
+
+    await page.click('#runMonteCarlo');
+    await page.waitForFunction(() => window.Chart && !!window.Chart.getChart(document.getElementById('monteCarloChart')));
+    expect('mc: results shown after running', await page.locator('#mcResults').isVisible());
+    expect('mc: four summary cards', (await page.locator('#mcSummary .card').count()) === 4);
+
+    const prob = await page.locator('#mcSummary .card').first().locator('.value').textContent();
+    expect('mc: probability rendered as a percentage', /%/.test(prob), prob);
+    expect('mc: best/worst callouts present', (await page.locator('#mcExtremes span').count()) === 2);
+    expect('mc: goal table populated', (await page.locator('#mcGoalTable tbody tr').count()) > 0);
+
+    // The goal block defaults to the 10th percentile; switching to the 90th re-solves
+    // from the cached result (more optimistic, so the projected value rises).
+    expect('mc: goal percentile defaults to 10th', (await page.inputValue('#mcGoalPercentile')) === '10');
+    // The intro reads "Projection {projected} — …"; the segment before the em-dash
+    // holds exactly the projected value, so parseMoney() of it is unambiguous.
+    const projection = async () => parseMoney((await page.locator('#mcGoalIntro').textContent()).split('—')[0]);
+    const projP10 = await projection();
+    await page.selectOption('#mcGoalPercentile', '90');
+    expect('mc: goal table still populated after switching percentile',
+      (await page.locator('#mcGoalTable tbody tr').count()) > 0);
+    const projP90 = await projection();
+    expect('mc: 90th-percentile projection exceeds the 10th', projP90 > projP10, `${projP90} vs ${projP10}`);
+
+    // The log-scale toggle redraws the cached MC chart without re-running it.
+    await page.check('#logScale');
+    expect('mc: log scale applies to the MC chart', (await yScaleType(page, 'monteCarloChart')) === 'logarithmic');
+  },
+
+  // 16. Per-asset volatility survives an export → reset → import round-trip.
+  async ({ page }, expect) => {
+    const fs = require('fs');
+    const volSel = '#allocationTable tr[data-asset="etf"] input[data-field="volatility"]';
+    await setAssetField(page, 'etf', 'volatility', 23);
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('#exportInputs'),
+    ]);
+    const exported = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
+    const etf = exported.params.assets.find((a) => a.id === 'etf');
+    expect('vol: export captures volatility', etf.volatility === 23, JSON.stringify(etf));
+
+    await page.click('#resetDefaults');
+    expect('vol: reset restores default volatility', (await page.inputValue(volSel)) === '15');
+
+    await page.setInputFiles('#importFile', await download.path());
+    await page.waitForFunction(() => document.querySelector('#allocationTable tr[data-asset="etf"] input[data-field="volatility"]').value === '23');
+    expect('vol: import restores volatility', (await page.inputValue(volSel)) === '23');
+  },
 ];
 
 // -------------------------------------------------------------------- runner --

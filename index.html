@@ -64,6 +64,7 @@
                 <th class="late-col hidden"><span data-i18n="allocationLate"></span> <span class="switch-year-label"></span></th>
                 <th data-i18n="withdrawalShare"></th>
                 <th data-i18n="annualReturn"></th>
+                <th data-i18n="volatility"></th>
                 <th data-i18n="dividendYield"></th>
                 <th data-i18n="ter"></th>
               </tr>
@@ -76,6 +77,7 @@
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="volatility" min="0" step="1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
               </tr>
@@ -86,6 +88,7 @@
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="volatility" min="0" step="1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
               </tr>
@@ -96,6 +99,7 @@
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="volatility" min="0" step="1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
               </tr>
@@ -106,6 +110,7 @@
                 <td class="late-col hidden"><input type="number" data-field="allocationLate" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="withdrawalShare" min="0" max="100" step="5"></td>
                 <td><input type="number" data-field="annualReturn" step="0.1"></td>
+                <td><input type="number" data-field="volatility" min="0" step="1"></td>
                 <td><input type="number" data-field="dividendYield" min="0" step="0.1"></td>
                 <td><input type="number" data-field="ter" min="0" step="0.05"></td>
               </tr>
@@ -117,7 +122,7 @@
                 <td id="allocationSum"></td>
                 <td class="late-col hidden" id="allocationLateSum"></td>
                 <td id="withdrawalShareSum"></td>
-                <td colspan="3"></td>
+                <td colspan="4"></td>
               </tr>
             </tfoot>
           </table>
@@ -194,6 +199,11 @@
             <span data-i18n="maxRetirementYears"></span>
             <input type="number" id="maxRetirementYears" min="1" max="100" step="1">
           </label>
+          <label>
+            <span data-i18n="monteCarloRuns"></span>
+            <input type="number" id="monteCarloRuns" min="1" max="10000" step="100">
+            <small data-i18n="monteCarloRunsHint"></small>
+          </label>
         </div>
         <label class="checkbox">
           <input type="checkbox" id="displayReal">
@@ -230,6 +240,31 @@
       <h2 data-i18n="assetChartTitle"></h2>
       <div class="chart-wrap">
         <canvas id="assetChart"></canvas>
+      </div>
+    </section>
+
+    <section class="chart-section">
+      <h2 data-i18n="mcTitle"></h2>
+      <p class="hint" data-i18n="mcIntro"></p>
+      <button type="button" id="runMonteCarlo" data-i18n="mcRun"></button>
+      <div id="mcResults" class="hidden">
+        <div class="chart-wrap">
+          <canvas id="monteCarloChart"></canvas>
+        </div>
+        <section id="mcSummary" class="summary"></section>
+        <div id="mcExtremes" class="mc-extremes"></div>
+        <div id="mcGoal">
+          <h3 data-i18n="mcGoalTitle"></h3>
+          <label class="mc-goal-select">
+            <span data-i18n="mcGoalSelect"></span>
+            <select id="mcGoalPercentile"></select>
+          </label>
+          <p id="mcGoalIntro"></p>
+          <p class="hint" data-i18n="mcGoalNote"></p>
+          <div class="table-wrap">
+            <table id="mcGoalTable"></table>
+          </div>
+        </div>
       </div>
     </section>
 

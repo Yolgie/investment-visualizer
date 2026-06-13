@@ -24,6 +24,7 @@
  * @property {number} annualReturn      price appreciation, % p.a.
  * @property {number} dividendYield     distributions, % p.a.
  * @property {number} ter               fund costs, % p.a.
+ * @property {number} [volatility]      annual standard deviation of returns, % p.a. (Monte Carlo; defaults to 0)
  *
  * @typedef {Object} Params
  * @property {number} startingAmount
@@ -42,13 +43,14 @@
  * @property {number} maxRetirementYears
  * @property {'amount' | 'stableValue'} goalType
  * @property {number} targetAmount
+ * @property {number} monteCarloRuns    number of Monte Carlo runs
  *
- * The shape after withDefaults(): the optional allocation/withdrawal fields are
- * resolved to numbers, so the simulation never has to re-handle missing values.
- * @typedef {Asset & { allocationStart: number, allocationLate: number, withdrawalShare: number }} ResolvedAsset
+ * The shape after withDefaults(): the optional allocation/withdrawal/volatility fields
+ * are resolved to numbers, so the simulation never has to re-handle missing values.
+ * @typedef {Asset & { allocationStart: number, allocationLate: number, withdrawalShare: number, volatility: number }} ResolvedAsset
  * @typedef {Omit<Params, 'assets'> & { assets: ResolvedAsset[] }} ResolvedParams
  *
- * @typedef {{ id: string, value: number, basis: number, growthRate: number, dividendRate: number, withdrawalShare: number }} Bucket
+ * @typedef {{ id: string, value: number, basis: number, growthRate: number, volRate: number, logDrift: number, dividendRate: number, withdrawalShare: number }} Bucket
  *
  * @typedef {Object} MonthRecord
  * @property {number} month
@@ -92,6 +94,22 @@
  * @property {FirstRetirementYear} firstRetirementYear
  *
  * @typedef {{ months: MonthRecord[], summary: Summary }} SimulationResult
+ *
+ * Monte Carlo results. Trajectories are yearly nominal total-portfolio values,
+ * index 0 = today, one point per year through retirement + drawdown.
+ * @typedef {{ p5: number, p10: number, p25: number, p50: number, p75: number, p90: number, p95: number, mean: number }} Band
+ * @typedef {{ index: number, finalValue: number, trajectory: number[] }} ExtremeRun
+ * @typedef {Object} MonteCarloSummary
+ * @property {number} runs
+ * @property {number} probLasts                      share of runs that survive the full horizon (0..1)
+ * @property {Band} atRetirement                      nominal value-at-retirement percentiles (mean unused)
+ * @property {ExtremeRun} best                        run with the highest final value
+ * @property {ExtremeRun} worst                       run with the lowest final value
+ *
+ * @typedef {Object} MonteCarloResult
+ * @property {number[][]} runs    one yearly nominal trajectory per run
+ * @property {Band[]}     bands   per-year-index percentiles across all runs
+ * @property {MonteCarloSummary} summary
  */
 
 /** @type {Params} */
@@ -108,14 +126,15 @@ const DEFAULT_PARAMS = {
   // allocationLate the contributions after the switch year. Each in %, should sum to
   // 100 across assets (UI warns; math normalizes).
   // annualReturn = price appreciation, dividendYield = distributions, ter = fund costs; all % p.a.
-  // withdrawalShare: which assets are sold to fund the retirement withdrawal (in %,
-  // should sum to 100). Once those run dry, selling falls back to the remaining
-  // assets proportionally by value.
+  // volatility = annual standard deviation of returns, % p.a. (drives the Monte Carlo
+  // dispersion; 0 means a deterministic asset). withdrawalShare: which assets are sold to
+  // fund the retirement withdrawal (in %, should sum to 100). Once those run dry, selling
+  // falls back to the remaining assets proportionally by value.
   assets: [
-    { id: 'etf', allocationStart: 70, allocation: 70, allocationLate: 50, withdrawalShare: 90, annualReturn: 6.5, dividendYield: 0, ter: 0.2 },
-    { id: 'bonds', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1 },
-    { id: 'stocks', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 10, annualReturn: 7, dividendYield: 0, ter: 0 },
-    { id: 'dividendStocks', allocationStart: 10, allocation: 10, allocationLate: 30, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0 },
+    { id: 'etf', allocationStart: 70, allocation: 70, allocationLate: 50, withdrawalShare: 90, annualReturn: 6.5, dividendYield: 0, ter: 0.2, volatility: 15 },
+    { id: 'bonds', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1, volatility: 5 },
+    { id: 'stocks', allocationStart: 10, allocation: 10, allocationLate: 10, withdrawalShare: 10, annualReturn: 7, dividendYield: 0, ter: 0, volatility: 20 },
+    { id: 'dividendStocks', allocationStart: 10, allocation: 10, allocationLate: 30, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0, volatility: 14 },
   ],
   // From year `year` on, contributions are split by allocationLate instead of allocation.
   // Existing holdings are never sold/rebalanced (no tax event).
@@ -145,6 +164,9 @@ const DEFAULT_PARAMS = {
   // Goal (amount mode): desired value at retirement, expressed in today's
   // purchasing power. The target block solves how each lever would reach it.
   targetAmount: 1000000,
+
+  // Number of Monte Carlo runs (the on-demand volatility simulation).
+  monteCarloRuns: 1000,
 };
 
 /**
@@ -168,6 +190,7 @@ function withDefaults(partial) {
       allocationStart: a.allocationStart ?? allocation,
       allocationLate: a.allocationLate ?? allocation,
       withdrawalShare: a.withdrawalShare ?? 0,
+      volatility: a.volatility ?? 0,
     };
   });
   return { ...p, assets };
@@ -178,6 +201,34 @@ function monthlyRate(annualPercent) {
   // Clamp so a pathological input (< -100 % p.a.) cannot produce NaN.
   const annual = Math.max(annualPercent / 100, -0.99);
   return Math.pow(1 + annual, 1 / 12) - 1;
+}
+
+/**
+ * Seedable PRNG (mulberry32). Returns a function producing floats in [0, 1).
+ * Seeding keeps Monte Carlo runs reproducible within a session and deterministic
+ * in tests.
+ * @param {number} seed @returns {() => number}
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a += 0x6d2b79f5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * One draw from the standard normal distribution (Box–Muller) using `rng`.
+ * @param {() => number} rng @returns {number}
+ */
+function gaussian(rng) {
+  // Guard the log against an exact 0 draw (which would give -Infinity).
+  const u = 1 - rng();
+  const v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
 /** @param {number[]} weights @returns {number[]} */
@@ -207,22 +258,40 @@ function netLiquidationValue(buckets, kest) {
  *
  * months: one entry per simulated month:
  *   { month, value, basis, contributions, phase: 'accumulation' | 'drawdown' }
+ *
+ * When `options.rng` is supplied, each month's per-asset return is drawn at random
+ * (mean = the deterministic monthly growth rate, stdev = volatility / √12) instead of
+ * being fixed — this is the Monte Carlo path. Without it the simulation is deterministic.
  * @param {Partial<Params>} rawParams
  * @param {number} [scenarioShift]
+ * @param {{ rng?: () => number }} [options]
  * @returns {SimulationResult}
  */
-function simulate(rawParams, scenarioShift = 0) {
+function simulate(rawParams, scenarioShift = 0, options = {}) {
   const params = withDefaults(rawParams);
   const kest = params.kest / 100;
+  const rng = options.rng;
 
-  const buckets = params.assets.map((a) => ({
-    id: a.id,
-    value: 0,
-    basis: 0,
-    growthRate: monthlyRate(a.annualReturn + scenarioShift - a.ter),
-    dividendRate: a.dividendYield / 100 / 12,
-    withdrawalShare: Math.max(0, a.withdrawalShare),
-  }));
+  const buckets = params.assets.map((a) => {
+    const growthRate = monthlyRate(a.annualReturn + scenarioShift - a.ter);
+    // Monthly volatility = annual stdev / √12; only used on the Monte Carlo path.
+    const volRate = Math.max(0, a.volatility) / 100 / Math.sqrt(12);
+    return {
+      id: a.id,
+      value: 0,
+      basis: 0,
+      growthRate,
+      volRate,
+      // Drift of the monthly log return for the (mean-preserving) lognormal Monte
+      // Carlo draw: with log(1+r) ~ N(logDrift, volRate²), E[1+r] = 1 + growthRate,
+      // so the expected return matches the deterministic rate while the median path
+      // sits a little lower (volatility drag). 1 + growthRate > 0 always (monthlyRate
+      // clamps the annual rate at ≥ -99 %), so the log is well defined.
+      logDrift: Math.log(1 + growthRate) - (volRate * volRate) / 2,
+      dividendRate: a.dividendYield / 100 / 12,
+      withdrawalShare: Math.max(0, a.withdrawalShare),
+    };
+  });
 
   // Starting amount has its own allocation (the current holdings); its cost basis
   // is distributed proportionally (capped at the starting amount).
@@ -275,7 +344,14 @@ function simulate(rawParams, scenarioShift = 0) {
   };
 
   const applyGrowth = () => {
-    for (const b of buckets) b.value *= 1 + b.growthRate;
+    for (const b of buckets) {
+      // Monte Carlo: draw this month's growth factor from a lognormal (log return ~
+      // N(logDrift, volRate²)), so the factor is always positive — no -100 % floor to
+      // clamp — and the outcome distribution is realistically right-skewed.
+      // Deterministic path: the fixed factor.
+      const factor = rng ? Math.exp(b.logDrift + b.volRate * gaussian(rng)) : 1 + b.growthRate;
+      b.value *= factor;
+    }
   };
 
   // Reinvest an amount proportionally to current bucket values (already-taxed money,
@@ -473,6 +549,91 @@ function simulateScenarios(rawParams) {
   };
 }
 
+// --- Monte Carlo -------------------------------------------------------------
+
+/**
+ * Linear-interpolated percentile of an ascending-sorted array. p in [0, 100].
+ * @param {number[]} sortedAsc @param {number} p @returns {number}
+ */
+function percentile(sortedAsc, p) {
+  const rank = (p / 100) * (sortedAsc.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  return lo === hi ? sortedAsc[lo] : sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (rank - lo);
+}
+
+/**
+ * The standard percentile set plus the mean for an ascending-sorted array.
+ * @param {number[]} sortedAsc @returns {Band}
+ */
+function bandOf(sortedAsc) {
+  return {
+    p5: percentile(sortedAsc, 5), p10: percentile(sortedAsc, 10), p25: percentile(sortedAsc, 25),
+    p50: percentile(sortedAsc, 50), p75: percentile(sortedAsc, 75), p90: percentile(sortedAsc, 90),
+    p95: percentile(sortedAsc, 95), mean: sortedAsc.reduce((s, v) => s + v, 0) / sortedAsc.length,
+  };
+}
+
+/**
+ * Run many simulations with random monthly returns (volatility per asset) and
+ * summarize the spread. Each run yields a yearly nominal total-value trajectory;
+ * percentile bands are computed across runs at every year index.
+ * @param {Partial<Params>} rawParams
+ * @param {{ runs?: number, seed?: number }} [options]
+ * @returns {MonteCarloResult}
+ */
+function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
+  const params = withDefaults(rawParams);
+  const n = Math.max(1, Math.round(runs ?? params.monteCarloRuns));
+  // A fixed default seed makes a given input reproducible across redraws and in tests.
+  const rng = mulberry32((seed ?? 0x9e3779b9) >>> 0);
+
+  const accumulationMonths = Math.round(params.yearsToRetirement * 12);
+  const totalMonths = accumulationMonths + Math.round(params.maxRetirementYears * 12);
+  const yearCount = Math.floor(totalMonths / 12) + 1;
+
+  /** @type {number[][]} */
+  const trajectories = [];
+  const atRet = [];
+  let lasted = 0;
+  let best = /** @type {ExtremeRun | null} */ (null);
+  let worst = /** @type {ExtremeRun | null} */ (null);
+
+  for (let i = 0; i < n; i++) {
+    const { months, summary } = simulate(params, 0, { rng });
+    const traj = [];
+    for (let y = 0; y < yearCount; y++) {
+      const idx = y * 12;
+      // Beyond depletion the months array stops, so the value is 0 from there on.
+      traj.push(idx < months.length ? months[idx].value : 0);
+    }
+    trajectories.push(traj);
+    atRet.push(summary.atRetirement.value);
+    if (summary.runOutMonth === null) lasted++;
+    const finalValue = summary.finalValue;
+    if (best === null || finalValue > best.finalValue) best = { index: i, finalValue, trajectory: traj };
+    if (worst === null || finalValue < worst.finalValue) worst = { index: i, finalValue, trajectory: traj };
+  }
+
+  /** @type {Band[]} */
+  const bands = [];
+  for (let y = 0; y < yearCount; y++) {
+    bands.push(bandOf(trajectories.map((t) => t[y]).sort((a, b) => a - b)));
+  }
+
+  return {
+    runs: trajectories,
+    bands,
+    summary: {
+      runs: n,
+      probLasts: lasted / n,
+      atRetirement: bandOf(atRet.slice().sort((a, b) => a - b)),
+      best: /** @type {ExtremeRun} */ (best),
+      worst: /** @type {ExtremeRun} */ (worst),
+    },
+  };
+}
+
 // --- Target goal-seek --------------------------------------------------------
 
 /**
@@ -505,6 +666,24 @@ function realFinalValue(p, shift = 0) {
 }
 
 /**
+ * The constant return-shift whose deterministic value-at-retirement equals a given
+ * nominal target. Used to turn a Monte Carlo percentile (e.g. the p10 value at
+ * retirement) into an "equivalent shift" the existing deterministic goal-seek can
+ * reason about. Value-at-retirement is monotonically increasing in the shift, so a
+ * single bisection finds it; out-of-range targets clamp to the search bounds.
+ * @param {Partial<Params>} rawParams
+ * @param {number} targetNominalValue
+ * @returns {number}
+ */
+function shiftForValueAtRetirement(rawParams, targetNominalValue) {
+  const params = withDefaults(rawParams);
+  const f = (/** @type {number} */ shift) => simulate(params, shift).summary.atRetirement.value - targetNominalValue;
+  const res = bisect(f, -100, 100);
+  if ('value' in res) return res.value;
+  return res.status === 'belowFloor' ? -100 : 100;
+}
+
+/**
  * Solve f(x) === 0 for a monotonically increasing f by bisection.
  * Returns { value } on success, or { status } when the target isn't bracketed
  * in the searchable range:
@@ -533,8 +712,9 @@ function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {
 
 /**
  * For each lever (held independently, all else fixed), find the value it would
- * need to reach the configured goal in the avg scenario. Each lever's
- * goal-distance is monotonically increasing in that lever, so bisection converges.
+ * need to reach the configured goal in the avg scenario. Each lever's goal-distance
+ * is monotonic in that lever (increasing, or decreasing for levers flagged as such,
+ * e.g. the withdrawal ceiling), so bisection converges.
  *
  * Two goal modes (params.goalType):
  *   'amount'      – hit params.targetAmount (real, today's purchasing power) at
@@ -546,15 +726,21 @@ function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {
  *
  * Note: with a non-positive real return the years lever can be non-monotonic;
  * the belowFloor/unreachable statuses cover any non-bracketed case gracefully.
+ *
+ * `baseShift` is a constant return-rate shift baked into every evaluation. The
+ * Monte Carlo percentile goal-seek uses it to ask the same questions about a
+ * pessimistic/optimistic run (e.g. "the bottom-10% run") via the equivalent-shift
+ * that reproduces that percentile's value at retirement.
  * @param {Partial<Params>} rawParams
+ * @param {{ baseShift?: number }} [options]
  */
-function solveTargets(rawParams) {
+function solveTargets(rawParams, { baseShift = 0 } = {}) {
   const params = withDefaults(rawParams);
   const stable = params.goalType === 'stableValue';
-  const current = realValueAtRetirement(params);
+  const current = realValueAtRetirement(params, baseShift);
   // Real value left at the end of the drawdown horizon — only meaningful for the
   // stable-value goal, where it is compared against `current`.
-  const finalReal = realFinalValue(params);
+  const finalReal = realFinalValue(params, baseShift);
 
   // f(p, shift) === 0 exactly when the lever configured by (p, shift) meets the
   // goal; positive when it overshoots. Monotonically increasing in every lever.
@@ -562,8 +748,10 @@ function solveTargets(rawParams) {
     ? (/** @type {Params} */ p, /** @type {number} */ shift) => realFinalValue(p, shift) - realValueAtRetirement(p, shift)
     : (/** @type {Params} */ p, /** @type {number} */ shift) => realValueAtRetirement(p, shift) - params.targetAmount;
 
-  /** @typedef {{ current: number, lo: number, hi: number, expandHi?: boolean, apply: (x: number) => { p: Params, shift: number } }} LeverSpec */
+  /** @typedef {{ current: number, lo: number, hi: number, expandHi?: boolean, decreasing?: boolean, apply: (x: number) => { p: Params, shift: number } }} LeverSpec */
   // Each lever: a search range and how it maps x -> a (params, scenario-shift) pair.
+  // `decreasing` flags levers whose objective falls as the lever rises (so bisect,
+  // which expects an increasing function, gets the negated objective).
   /** @type {Record<string, LeverSpec>} */
   const specs = {
     monthlyContribution: {
@@ -588,10 +776,25 @@ function solveTargets(rawParams) {
     },
   };
 
+  // Stable-value goal only: the largest monthly withdrawal whose real value still
+  // holds up over the drawdown phase. Withdrawal doesn't affect the value *at*
+  // retirement, so it is meaningless for the fixed-amount goal — and the objective
+  // falls as the withdrawal rises, hence `decreasing`.
+  if (stable) {
+    specs.monthlyWithdrawal = {
+      current: params.monthlyWithdrawal, lo: 0, hi: 1e4, expandHi: true, decreasing: true,
+      apply: (x) => ({ p: { ...params, monthlyWithdrawal: x }, shift: 0 }),
+    };
+  }
+
   /** @type {Record<string, { current: number, needed: number | null, status: string }>} */
   const levers = {};
   for (const [key, spec] of Object.entries(specs)) {
-    const f = (/** @type {number} */ x) => { const { p, shift } = spec.apply(x); return objective(p, shift); };
+    const f = (/** @type {number} */ x) => {
+      const { p, shift } = spec.apply(x);
+      const val = objective(p, shift + baseShift);
+      return spec.decreasing ? -val : val;
+    };
     const res = bisect(f, spec.lo, spec.hi, { expandHi: spec.expandHi });
     levers[key] = 'value' in res
       ? { current: spec.current, needed: res.value, status: 'ok' }
@@ -613,6 +816,7 @@ function solveTargets(rawParams) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios,
-    realValueAtRetirement, realFinalValue, solveTargets,
+    mulberry32, gaussian, percentile, simulateMonteCarlo,
+    realValueAtRetirement, realFinalValue, shiftForValueAtRetirement, solveTargets,
   };
 }
