@@ -70,7 +70,7 @@ try {
     expect('page title is set', (await page.title()).length > 0);
 
     const canvases = await page.evaluate(() => {
-      const ids = ['chart', 'assetChart', 'pieChart'];
+      const ids = ['chart', 'assetChart', 'pieChart', 'allocationPie'];
       if (!window.Chart) return null;
       return ids.map((id) => {
         const c = document.getElementById(id);
@@ -81,6 +81,7 @@ try {
     for (const c of canvases || []) expect(`chart "${c.id}" rendered`, c.ok);
 
     expect('summary cards present', (await page.locator('#summary .card').count()) > 0);
+    expect('target table populated', (await page.locator('#targetTable tbody tr').count()) > 0);
     expect('per-asset table populated', (await page.locator('#perAssetTable tbody tr').count()) > 0);
     expect('withdrawal breakdown populated', (await page.locator('#withdrawalTable tbody tr').count()) > 0);
 

@@ -137,6 +137,12 @@ table input[type="number"] { min-width: 4.5rem; padding: 0.3rem 0.4rem; }
 .chart-option { margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; }
 .chart-wrap { position: relative; height: 380px; }
 .pie-wrap { position: relative; height: 300px; max-width: 460px; margin: 0 auto; }
+.pie-row { display: flex; flex-wrap: wrap; gap: 1rem; }
+.pie-fig { flex: 1 1 320px; min-width: 280px; margin: 0; }
+.pie-fig figcaption {
+  text-align: center; font-size: 0.9rem; font-weight: 600;
+  color: #5d6b7d; margin-bottom: 0.4rem;
+}
 
 .summary {
   display: grid;

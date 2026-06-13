@@ -155,6 +155,17 @@
         </label>
       </section>
 
+      <section>
+        <h2 data-i18n="targetSection"></h2>
+        <div class="grid">
+          <label>
+            <span data-i18n="targetAmount"></span>
+            <input type="number" id="targetAmount" min="0" step="50000">
+            <small data-i18n="targetAmountHint"></small>
+          </label>
+        </div>
+      </section>
+
       <details id="parametersSection">
         <summary data-i18n="parameters"></summary>
         <div class="grid">
@@ -217,6 +228,14 @@
     <section id="summary" class="summary"></section>
 
     <section>
+      <h2 data-i18n="targetTitle"></h2>
+      <p id="targetIntro"></p>
+      <div class="table-wrap">
+        <table id="targetTable"></table>
+      </div>
+    </section>
+
+    <section>
       <h2 data-i18n="withdrawalBreakdownTitle"></h2>
       <div class="table-wrap">
         <table id="withdrawalTable"></table>
@@ -232,8 +251,15 @@
 
     <section>
       <h2 data-i18n="pieTitle"></h2>
-      <div class="pie-wrap">
-        <canvas id="pieChart"></canvas>
+      <div class="pie-row">
+        <figure class="pie-fig">
+          <figcaption data-i18n="piePaidInVsGrowth"></figcaption>
+          <div class="pie-wrap"><canvas id="pieChart"></canvas></div>
+        </figure>
+        <figure class="pie-fig">
+          <figcaption data-i18n="pieAllocationTitle"></figcaption>
+          <div class="pie-wrap"><canvas id="allocationPie"></canvas></div>
+        </figure>
       </div>
     </section>
   </main>

@@ -16,6 +16,21 @@ const I18N = {
     increaseAmount: '€ pro Jahr',
     yearsToRetirement: 'Jahre bis zur Pension',
 
+    targetSection: 'Ziel',
+    targetAmount: 'Zielvermögen bei Pension (heutige Kaufkraft, €)',
+    targetAmountHint: 'In heutiger Kaufkraft — die Tabelle unten zeigt, wie jeder Hebel einzeln dieses Ziel erreichen würde.',
+    targetTitle: 'Weg zum Ziel',
+    targetIntroReached: 'Prognose {projected} — {gap} über dem Ziel von {target} (heutige Kaufkraft). Jeder Hebel könnte einzeln entsprechend niedriger ausfallen:',
+    targetIntroShort: 'Prognose {projected} — {gap} unter dem Ziel von {target} (heutige Kaufkraft). So weit müsste jeder Hebel einzeln steigen:',
+    targetLever: 'Hebel',
+    targetCurrent: 'Aktuell',
+    targetNeeded: 'Nötig fürs Ziel',
+    targetChange: 'Änderung',
+    targetLeverReturn: 'Rendite aller Anlageklassen',
+    targetBelowFloor: 'mit diesem Hebel allein nicht erreichbar (müsste unter 0 fallen)',
+    targetUnreachable: 'außerhalb des realistischen Bereichs',
+    unitYears: 'Jahre',
+
     portfolio: 'Portfolio-Aufteilung',
     asset: 'Anlageklasse',
     allocationStart: 'Startkapital %',
@@ -68,6 +83,8 @@ const I18N = {
     importError: 'Die Datei konnte nicht gelesen werden — ist es ein Export dieses Rechners?',
 
     pieTitle: 'Zusammensetzung bei Pensionsantritt',
+    piePaidInVsGrowth: 'Eingezahlt vs. Wertzuwachs',
+    pieAllocationTitle: 'Aufteilung nach Anlageklasse',
     pieContributions: 'Eingezahltes Kapital',
     pieGrowth: 'Wertzuwachs',
 
@@ -114,6 +131,21 @@ const I18N = {
     increasePercent: '% per year',
     increaseAmount: '€ per year',
     yearsToRetirement: 'Years until retirement',
+
+    targetSection: 'Goal',
+    targetAmount: 'Target at retirement (today’s purchasing power, €)',
+    targetAmountHint: 'In today’s purchasing power — the table below shows how each lever alone would reach it.',
+    targetTitle: 'Path to the goal',
+    targetIntroReached: 'Projection {projected} — {gap} above the goal of {target} (today’s purchasing power). Each lever alone could be lower accordingly:',
+    targetIntroShort: 'Projection {projected} — {gap} below the goal of {target} (today’s purchasing power). Here is how far each lever alone would have to rise:',
+    targetLever: 'Lever',
+    targetCurrent: 'Current',
+    targetNeeded: 'Needed for goal',
+    targetChange: 'Change',
+    targetLeverReturn: 'Return of all asset classes',
+    targetBelowFloor: 'not reachable with this lever alone (would need to drop below 0)',
+    targetUnreachable: 'outside the realistic range',
+    unitYears: 'years',
 
     portfolio: 'Portfolio allocation',
     asset: 'Asset class',
@@ -167,6 +199,8 @@ const I18N = {
     importError: 'Could not read the file — is it an export from this calculator?',
 
     pieTitle: 'Composition at retirement',
+    piePaidInVsGrowth: 'Paid-in vs. growth',
+    pieAllocationTitle: 'Allocation by asset class',
     pieContributions: 'Paid-in capital',
     pieGrowth: 'Growth',
 

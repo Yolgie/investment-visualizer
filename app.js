@@ -1,7 +1,7 @@
 /* DOM wiring: reads inputs, runs the simulation, renders chart + summary,
  * handles i18n and the opt-in localStorage persistence. */
 
-/* global I18N, DEFAULT_PARAMS, simulateScenarios */
+/* global I18N, DEFAULT_PARAMS, simulateScenarios, solveTargets */
 
 const STORAGE_KEY = 'retirement-calc-v1';
 const LANG_KEY = 'retirement-calc-lang';
@@ -25,6 +25,13 @@ function fmtMoney(v) {
   }).format(v);
 }
 
+// Plain number with a fixed number of decimals, localized (de-AT uses a comma).
+function fmtNum(v, decimals = 1) {
+  return new Intl.NumberFormat(lang === 'de' ? 'de-AT' : 'en-AT', {
+    minimumFractionDigits: decimals, maximumFractionDigits: decimals,
+  }).format(v);
+}
+
 // ---------------------------------------------------------------- form I/O --
 
 function setFormValues(params, ui) {
@@ -34,6 +41,7 @@ function setFormValues(params, ui) {
   $('contributionIncreaseValue').value = params.contributionIncrease.value;
   $('contributionIncreaseUnit').value = params.contributionIncrease.unit;
   $('yearsToRetirement').value = params.yearsToRetirement;
+  $('targetAmount').value = params.targetAmount;
   $('allocationSwitchEnabled').checked = params.allocationSwitch.enabled;
   $('allocationSwitchYear').value = params.allocationSwitch.year;
   $('reinvestDividends').checked = params.reinvestDividends;
@@ -82,6 +90,7 @@ function readParams() {
       unit: $('contributionIncreaseUnit').value,
     },
     yearsToRetirement: Math.max(1, num($('yearsToRetirement'), 30)),
+    targetAmount: Math.max(0, num($('targetAmount'), 1000000)),
     assets,
     allocationSwitch: {
       enabled: $('allocationSwitchEnabled').checked,
@@ -205,6 +214,7 @@ function updateAllocationUI(params) {
 let chart = null;
 let assetChart = null;
 let pieChart = null;
+let allocationPie = null;
 const ASSET_COLORS = {
   etf: { border: '#2563eb', fill: 'rgba(37,99,235,0.35)' },
   bonds: { border: '#64748b', fill: 'rgba(100,116,139,0.35)' },
@@ -477,6 +487,36 @@ function renderPie(scenarios, params, displayReal) {
   }
 }
 
+// Portfolio split by asset class at retirement (avg scenario).
+function renderAllocationPie(scenarios, params, displayReal) {
+  const s = scenarios.avg.summary;
+  // Deflating scales every slice equally, so proportions stay the same.
+  const deflator = displayReal
+    ? Math.pow(1 + params.inflation / 100, s.accumulationMonths / 12) : 1;
+  const assets = s.atRetirement.perAsset;
+  const data = {
+    labels: assets.map((a) => t(ASSET_LABEL_KEYS[a.id] || a.id)),
+    datasets: [{
+      data: assets.map((a) => a.value / deflator),
+      backgroundColor: assets.map((a) => (ASSET_COLORS[a.id] || {}).border || '#94a3b8'),
+    }],
+  };
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      tooltip: { callbacks: { label: (item) => `${item.label}: ${fmtMoney(item.parsed)}` } },
+    },
+  };
+  if (allocationPie) {
+    allocationPie.data = data;
+    allocationPie.options = options;
+    allocationPie.update('none');
+  } else {
+    allocationPie = new Chart($('allocationPie'), { type: 'pie', data, options, plugins: [pieLabelPlugin] });
+  }
+}
+
 // ------------------------------------------------------------------ summary --
 
 function deflate(value, params, displayReal, atMonth) {
@@ -597,6 +637,58 @@ function renderPerAsset(scenarios, params, displayReal) {
     <tbody>${rows}</tbody>`;
 }
 
+// ------------------------------------------------------------- target block --
+
+// How each lever's values are formatted, in display order. `unit` controls the
+// "change" cell: money/years use absolute deltas, percent/pp show the figure.
+function targetLeverMeta() {
+  return [
+    { key: 'monthlyContribution', label: t('monthlyContribution'), fmt: fmtMoney, unit: 'money' },
+    { key: 'contributionIncrease', label: t('contributionIncrease'), fmt: (v) => `${fmtNum(v)} %`, unit: 'percent' },
+    { key: 'yearsToRetirement', label: t('yearsToRetirement'), fmt: (v) => `${fmtNum(v)} ${t('unitYears')}`, unit: 'years' },
+    { key: 'startingAmount', label: t('startingAmount'), fmt: fmtMoney, unit: 'money' },
+    { key: 'returnShift', label: t('targetLeverReturn'), fmt: (v) => `${v > 0 ? '+' : ''}${fmtNum(v)} pp`, unit: 'pp' },
+  ];
+}
+
+function targetChangeCell(meta, lever) {
+  if (lever.status === 'belowFloor') return t('targetBelowFloor');
+  if (lever.status === 'unreachable') return t('targetUnreachable');
+  const delta = lever.needed - lever.current;
+  if (Math.abs(delta) < (meta.unit === 'money' ? 1 : 0.05)) return '–';
+  const arrow = delta > 0 ? '↑' : '↓';
+  return `${arrow} ${meta.fmt(Math.abs(delta))}`;
+}
+
+function renderTarget(params) {
+  const result = solveTargets(params);
+  const projected = fmtMoney(result.current);
+  const target = fmtMoney(result.target);
+  const gap = fmtMoney(Math.abs(result.current - result.target));
+  $('targetIntro').textContent = (result.reached ? t('targetIntroReached') : t('targetIntroShort'))
+    .replace('{projected}', projected).replace('{target}', target).replace('{gap}', gap);
+
+  const rows = targetLeverMeta().map((meta) => {
+    const lever = result.levers[meta.key];
+    const needed = lever.status === 'ok' ? meta.fmt(lever.needed) : '–';
+    return `<tr>
+      <td>${meta.label}</td>
+      <td>${meta.fmt(lever.current)}</td>
+      <td>${needed}</td>
+      <td>${targetChangeCell(meta, lever)}</td>
+    </tr>`;
+  }).join('');
+
+  $('targetTable').innerHTML = `
+    <thead><tr>
+      <th>${t('targetLever')}</th>
+      <th>${t('targetCurrent')}</th>
+      <th>${t('targetNeeded')}</th>
+      <th>${t('targetChange')}</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>`;
+}
+
 // --------------------------------------------------------------------- i18n --
 
 function applyI18n() {
@@ -625,9 +717,11 @@ function recalc() {
   renderChart(scenarios, params, displayReal);
   renderAssetChart(scenarios, params, displayReal);
   renderSummary(scenarios, params, displayReal);
+  renderTarget(params);
   renderWithdrawalBreakdown(scenarios, params, displayReal);
   renderPerAsset(scenarios, params, displayReal);
   renderPie(scenarios, params, displayReal);
+  renderAllocationPie(scenarios, params, displayReal);
 }
 
 function init() {
