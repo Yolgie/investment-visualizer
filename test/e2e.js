@@ -50,7 +50,10 @@ function cardValue(page, key) {
 }
 
 // Set a per-asset table cell (data-field) for the row with the given data-asset.
+// The allocation table lives in the collapsible portfolio <details>, so open it
+// first — page.fill() would otherwise wait on a hidden input.
 async function setAssetField(page, asset, field, value) {
+  await page.evaluate(() => { document.getElementById('portfolioSection').open = true; });
   await page.fill(`#allocationTable tr[data-asset="${asset}"] input[data-field="${field}"]`, String(value));
 }
 
@@ -161,6 +164,7 @@ const scenarios = [
 
   // 6. The allocation switch reveals the late-allocation column and its year label.
   async ({ page }, expect) => {
+    await page.evaluate(() => { document.getElementById('portfolioSection').open = true; });
     expect('switch: late column hidden by default', await page.locator('th.late-col').first().isHidden());
     await page.check('#allocationSwitchEnabled');
     expect('switch: late column shown when enabled', await page.locator('th.late-col').first().isVisible());
@@ -173,13 +177,13 @@ const scenarios = [
   // 7. The allocation warning appears when a column no longer sums to 100 %.
   async ({ page }, expect) => {
     expect('warn: hidden with valid defaults', await page.locator('#allocationWarning').isHidden());
-    await setAssetField(page, 'etf', 'allocation', 0); // contribution column now sums to 30 %
+    await setAssetField(page, 'etf', 'allocation', 0); // ETF-only default → column now sums to 0 %
     expect('warn: shown when contribution column != 100', await page.locator('#allocationWarning').isVisible());
     expect('warn: sum cell flagged', await page.locator('#allocationSum').evaluate((el) => el.classList.contains('sum-bad')));
-    expect('warn: sum cell shows 30 %', (await page.locator('#allocationSum').textContent()).trim() === '30 %');
+    expect('warn: sum cell shows 0 %', (await page.locator('#allocationSum').textContent()).trim() === '0 %');
     expect('warn: message names the contribution column',
       (await page.locator('#allocationWarning').textContent()).includes('Contribution'));
-    await setAssetField(page, 'etf', 'allocation', 70);
+    await setAssetField(page, 'etf', 'allocation', 100);
     expect('warn: hidden again once fixed', await page.locator('#allocationWarning').isHidden());
   },
 
