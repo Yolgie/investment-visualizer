@@ -271,6 +271,10 @@ function simulate(rawParams, scenarioShift = 0) {
       for (const b of sellable) {
         const netWanted = needThisPass * weightOf(b);
         if (netWanted <= 0) continue;
+        // `sellable` only holds buckets with value > 1e-9, so the zero guards on
+        // the next line and at `b.value || 1` below can't actually fire — they
+        // stay as defence in depth. c8-ignored so they don't dent branch coverage.
+        /* c8 ignore next */
         const gainFrac = b.value > 0 ? Math.max(0, (b.value - b.basis) / b.value) : 0;
         let gross = netWanted / (1 - gainFrac * kest);
         let net;
@@ -285,6 +289,7 @@ function simulate(rawParams, scenarioShift = 0) {
         } else {
           tax = gross * gainFrac * kest;
           net = gross - tax;
+          /* c8 ignore next */
           b.basis -= b.basis * (gross / (b.value || 1));
           b.value -= gross;
         }

@@ -11,33 +11,9 @@
 
 'use strict';
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const { startServer } = require('./server.js');
 
-const ROOT = path.join(__dirname, '..');
 const SCREENSHOT = process.env.SMOKE_SCREENSHOT || '/tmp/retirement-calc-smoke.png';
-
-const MIME = {
-  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-  '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
-  '.map': 'application/json', '.ico': 'image/x-icon',
-};
-
-// Minimal static file server rooted at the repo (no dependency on python3).
-function startServer() {
-  const server = http.createServer((req, res) => {
-    const urlPath = decodeURIComponent(req.url.split('?')[0]);
-    const rel = path.normalize(urlPath === '/' ? '/index.html' : urlPath).replace(/^(\.\.[/\\])+/, '');
-    const file = path.join(ROOT, rel);
-    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      res.writeHead(404); res.end('not found'); return;
-    }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-    fs.createReadStream(file).pipe(res);
-  });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
 
 let chromium;
 try {
