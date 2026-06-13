@@ -30,6 +30,10 @@ description = "Run the simulation unit tests"
 run = "npm run test:coverage"
 description = "Run the unit tests with the 100% coverage gate on calculator.js (c8)"
 
+[tasks.typecheck]
+run = "npm run typecheck"
+description = "Type-check calculator.js via tsc --checkJs (no emit, no build step)"
+
 [tasks.lint]
 run = "npx eslint ."
 description = "Run eslint"

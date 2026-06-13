@@ -60,6 +60,7 @@ network connection.
 npm ci             # dev tooling only — the site itself has no build step
 npm test           # unit tests for the simulation math (node test.js)
 npm run test:coverage  # same tests under a 100% coverage gate on calculator.js (c8)
+npm run typecheck  # tsc --checkJs over calculator.js (static analysis, no build/emit)
 npm run lint       # eslint (needs Node >= 20)
 mise run verify  # headless-browser smoke test (loads the page, checks the
                  # charts render and there are no JS errors; see test/smoke.js)
@@ -76,9 +77,12 @@ is idempotent, so it's safe to re-run.
 
 `calculator.js` (the pure simulation math) is held at **100% coverage** by
 `test.js`; `npm run test:coverage` enforces it via [c8](https://github.com/bcoe/c8)
-(config in `.c8rc.json`) and CI fails below the bar. The DOM layer (`app.js`,
-`i18n.js`) is covered behaviorally by the smoke/e2e suites rather than by the
-coverage gate, so it isn't included in the threshold.
+(config in `.c8rc.json`) and CI fails below the bar. It is also **type-checked**
+with `tsc --checkJs` (`npm run typecheck`, config in `tsconfig.json`) — the site
+still ships plain JS with no build step; the JSDoc typedefs at the top of
+`calculator.js` are the authoritative param/result shapes. The DOM layer
+(`app.js`, `i18n.js`) is covered behaviorally by the smoke/e2e suites rather than
+by the coverage gate or the type-checker, so neither includes it.
 
 ## Deploy to GitHub Pages
 

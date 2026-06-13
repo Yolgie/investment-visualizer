@@ -1,0 +1,15 @@
+{
+  "//": "Type-checking only — the site ships plain JS with no build step. `npm run typecheck` runs `tsc --noEmit` over the pure simulation math; app.js/i18n.js are DOM-coupled and not type-checked here.",
+  "compilerOptions": {
+    "checkJs": true,
+    "noEmit": true,
+    "allowJs": true,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["calculator.js"]
+}

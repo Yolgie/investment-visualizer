@@ -1,8 +1,11 @@
 /* Unit tests for calculator.js — run with `node test.js`. */
 
+const fs = require('fs');
+const path = require('path');
 const {
   DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios, realValueAtRetirement, solveTargets,
 } = require('./calculator.js');
+const { I18N } = require('./i18n.js');
 
 let passed = 0;
 let failed = 0;
@@ -420,15 +423,17 @@ const base = {
   const legacy = {
     startingAmount: 5000, startingCostBasis: 5000, monthlyContribution: 200, yearsToRetirement: 10,
     assets: [
-      // No allocationStart, no withdrawalShare — the shape of a pre-feature file.
-      { id: 'etf', allocation: 60, allocationLate: 60, annualReturn: 5, dividendYield: 0, ter: 0.2 },
-      { id: 'bonds', allocation: 40, allocationLate: 40, annualReturn: 2, dividendYield: 0, ter: 0.1 },
+      // No allocationStart, allocationLate or withdrawalShare — a pre-feature file.
+      { id: 'etf', allocation: 60, annualReturn: 5, dividendYield: 0, ter: 0.2 },
+      { id: 'bonds', allocation: 40, annualReturn: 2, dividendYield: 0, ter: 0.1 },
     ],
     // No targetAmount, contributionIncrease or allocationSwitch either.
   };
   const p = withDefaults(legacy);
   check('compat: allocationStart falls back to allocation',
     p.assets[0].allocationStart === 60 && p.assets[1].allocationStart === 40);
+  check('compat: allocationLate falls back to allocation',
+    p.assets[0].allocationLate === 60 && p.assets[1].allocationLate === 40);
   check('compat: withdrawalShare defaults to 0',
     p.assets[0].withdrawalShare === 0 && p.assets[1].withdrawalShare === 0);
   check('compat: targetAmount default filled', p.targetAmount === DEFAULT_PARAMS.targetAmount, p.targetAmount);
@@ -519,6 +524,103 @@ const base = {
     `${r.summary.dividends.paidOut} != ${expectedPaidOut}`);
   check('paidOut: value unchanged without reinvestment', approx(r.summary.atRetirement.value, 10000),
     r.summary.atRetirement.value);
+}
+
+// 30. i18n integrity: the two dictionaries hold identical key sets, and every
+//     key the UI (data-i18n) or app.js (t('…')) references exists in both. A
+//     missing key silently renders its own name, which no other test catches.
+{
+  const onlyDe = Object.keys(I18N.de).filter((k) => !(k in I18N.en));
+  const onlyEn = Object.keys(I18N.en).filter((k) => !(k in I18N.de));
+  check('i18n: no keys present only in de', onlyDe.length === 0, onlyDe.join(', '));
+  check('i18n: no keys present only in en', onlyEn.length === 0, onlyEn.join(', '));
+
+  const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
+  const dataKeys = [...read('index.html').matchAll(/data-i18n="([^"]+)"/g)].map((m) => m[1]);
+  const appKeys = [...read('app.js').matchAll(/\bt\('([a-zA-Z0-9]+)'\)/g)].map((m) => m[1]);
+  const missing = [...new Set([...dataKeys, ...appKeys])]
+    .filter((k) => !(k in I18N.de) || !(k in I18N.en));
+  check('i18n: every referenced key exists in both languages', missing.length === 0, missing.join(', '));
+}
+
+// 31. Property/invariant fuzz: random parameter sets must never break the
+//     simulation's structural invariants (finite, conservation, ordering).
+//     The PRNG is seeded so a failure is reproducible from the printed seed.
+{
+  const SEED = 0x1234abcd;
+  let s = SEED >>> 0;
+  const rand = () => { // mulberry32
+    s = (s + 0x6D2B79F5) | 0;
+    let x = Math.imul(s ^ (s >>> 15), 1 | s);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+  const between = (lo, hi) => lo + rand() * (hi - lo);
+  const intBetween = (lo, hi) => Math.floor(between(lo, hi + 1));
+  const ASSET_IDS = ['etf', 'bonds', 'stocks', 'dividendStocks'];
+
+  const randomParams = () => {
+    const startingAmount = Math.round(between(0, 500000));
+    return {
+      startingAmount,
+      startingCostBasis: Math.round(between(0, startingAmount)),
+      monthlyContribution: Math.round(between(0, 5000)),
+      contributionIncrease: { value: between(-5, 10), unit: rand() < 0.5 ? 'percent' : 'amount' },
+      yearsToRetirement: intBetween(1, 40),
+      assets: ASSET_IDS.slice(0, intBetween(1, 4)).map((id) => ({
+        id,
+        allocationStart: intBetween(0, 100),
+        allocation: intBetween(0, 100),
+        allocationLate: intBetween(0, 100),
+        withdrawalShare: intBetween(0, 100),
+        annualReturn: between(-10, 15),
+        dividendYield: between(0, 8),
+        ter: between(0, 1),
+      })),
+      allocationSwitch: { enabled: rand() < 0.5, year: intBetween(1, 40) },
+      reinvestDividends: rand() < 0.5,
+      scenarioSpread: between(0, 6),
+      monthlyWithdrawal: Math.round(between(0, 8000)),
+      withdrawalInflationAdjusted: rand() < 0.5,
+      kest: between(0, 55),
+      inflation: between(0, 6),
+      maxRetirementYears: intBetween(1, 40),
+      targetAmount: Math.round(between(0, 2000000)),
+    };
+  };
+
+  const ITER = 300;
+  let violations = 0;
+  let firstBad = null;
+  for (let i = 0; i < ITER; i++) {
+    const p = randomParams();
+    let ok = true;
+    const fail = (why) => { if (ok) { ok = false; if (!firstBad) firstBad = { i, why, p }; } };
+    const rel = (v) => Math.max(1, Math.abs(v)) * 1e-6;
+    try {
+      const r = simulate(p);
+      const { summary } = r;
+      const at = summary.atRetirement;
+      if (!Number.isFinite(at.value) || at.value < -1e-3) fail('value not finite/non-negative');
+      if (Math.abs(at.perAsset.reduce((acc, a) => acc + a.value, 0) - at.value) > rel(at.value)) fail('perAsset sum != value');
+      if (at.netIfSold > at.value + rel(at.value)) fail('netIfSold > value');
+      if (summary.dividends.net > summary.dividends.gross + 1e-3) fail('dividends net > gross');
+      if (summary.kestOnSales < -1e-3 || summary.kestOnDividends < -1e-3) fail('negative KESt');
+      if (Math.abs(summary.totalGrowth - (at.value - summary.totalContributions)) > rel(at.value)) fail('growth identity broken');
+      if (summary.keepsGrowing && summary.runOutMonth !== null) fail('keepsGrowing while depleted');
+      if (summary.runOutMonth !== null && !(summary.lastsYears >= -1e-3)) fail('negative lastsYears');
+      for (const m of r.months) {
+        if (!Number.isFinite(m.value)) { fail('month value not finite'); break; }
+        if (Math.abs(m.perAsset.reduce((acc, v) => acc + v, 0) - m.value) > rel(m.value)) { fail('month perAsset sum != value'); break; }
+      }
+    } catch (e) {
+      fail(`threw: ${e.message}`);
+    }
+    if (!ok) violations++;
+  }
+  check(`property fuzz: ${ITER} random runs hold all invariants (seed ${SEED.toString(16)})`,
+    violations === 0,
+    firstBad ? `${violations} violations; first @${firstBad.i}: ${firstBad.why} — ${JSON.stringify(firstBad.p)}` : '');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
