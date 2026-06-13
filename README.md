@@ -57,13 +57,28 @@ network connection.
 ## Tests & lint
 
 ```sh
-npm ci        # dev tooling only — the site itself has no build step
-npm test      # unit tests for the simulation math (node test.js)
-npm run lint  # eslint (needs Node >= 20)
+npm ci             # dev tooling only — the site itself has no build step
+npm test           # unit tests for the simulation math (node test.js)
+npm run test:coverage  # same tests under a 100% coverage gate on calculator.js (c8)
+npm run lint       # eslint (needs Node >= 20)
 mise run verify  # headless-browser smoke test (loads the page, checks the
-                 # charts render and there are no JS errors; installs
-                 # Playwright + Chromium on first run, see test/smoke.js)
+                 # charts render and there are no JS errors; see test/smoke.js)
+mise run e2e     # end-to-end browser scenarios: language toggle, opt-in
+                 # persistence, export/import round-trip, reset, allocation
+                 # switch + warning, nominal/real and log-scale toggles,
+                 # goal-seek table, dividend-funded drawdown (see test/e2e.js)
 ```
+
+The browser tests need Playwright + Chromium. `mise run verify` / `mise run e2e`
+install them on demand, and the `setup` task — run automatically on `mise install`
+via a `postinstall` hook — provisions them at container startup. `mise run setup`
+is idempotent, so it's safe to re-run.
+
+`calculator.js` (the pure simulation math) is held at **100% coverage** by
+`test.js`; `npm run test:coverage` enforces it via [c8](https://github.com/bcoe/c8)
+(config in `.c8rc.json`) and CI fails below the bar. The DOM layer (`app.js`,
+`i18n.js`) is covered behaviorally by the smoke/e2e suites rather than by the
+coverage gate, so it isn't included in the threshold.
 
 ## Deploy to GitHub Pages
 

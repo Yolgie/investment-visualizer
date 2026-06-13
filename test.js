@@ -1,7 +1,7 @@
 /* Unit tests for calculator.js — run with `node test.js`. */
 
 const {
-  simulate, simulateScenarios, realValueAtRetirement, solveTargets,
+  DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios, realValueAtRetirement, solveTargets,
 } = require('./calculator.js');
 
 let passed = 0;
@@ -412,6 +412,113 @@ const base = {
   check('huge target: not reached', huge.reached === false);
   check('huge target: return shift unreachable',
     huge.levers.returnShift.status === 'unreachable', huge.levers.returnShift.status);
+}
+
+// 26. Backwards-compat contract: withDefaults fills fields added after older
+//     saved/exported files were written (the README's "non-breaking" promise).
+{
+  const legacy = {
+    startingAmount: 5000, startingCostBasis: 5000, monthlyContribution: 200, yearsToRetirement: 10,
+    assets: [
+      // No allocationStart, no withdrawalShare — the shape of a pre-feature file.
+      { id: 'etf', allocation: 60, allocationLate: 60, annualReturn: 5, dividendYield: 0, ter: 0.2 },
+      { id: 'bonds', allocation: 40, allocationLate: 40, annualReturn: 2, dividendYield: 0, ter: 0.1 },
+    ],
+    // No targetAmount, contributionIncrease or allocationSwitch either.
+  };
+  const p = withDefaults(legacy);
+  check('compat: allocationStart falls back to allocation',
+    p.assets[0].allocationStart === 60 && p.assets[1].allocationStart === 40);
+  check('compat: withdrawalShare defaults to 0',
+    p.assets[0].withdrawalShare === 0 && p.assets[1].withdrawalShare === 0);
+  check('compat: targetAmount default filled', p.targetAmount === DEFAULT_PARAMS.targetAmount, p.targetAmount);
+  check('compat: contributionIncrease default filled',
+    p.contributionIncrease.value === 0 && p.contributionIncrease.unit === 'percent');
+  check('compat: allocationSwitch default filled',
+    p.allocationSwitch.enabled === false && p.allocationSwitch.year === DEFAULT_PARAMS.allocationSwitch.year);
+  const r = simulate(legacy);
+  check('compat: a legacy file still simulates to a finite value',
+    Number.isFinite(r.summary.atRetirement.value) && r.summary.atRetirement.value > 0);
+}
+
+// 26b. withDefaults supplies the whole default portfolio when assets is absent.
+{
+  const p = withDefaults({ startingAmount: 1000 });
+  check('compat: missing assets -> default portfolio', p.assets.length === DEFAULT_PARAMS.assets.length);
+  check('compat: default assets carry allocationStart',
+    p.assets.every((a) => typeof a.allocationStart === 'number'));
+  // A malformed file with an explicit null assets list also falls back.
+  const nulled = withDefaults({ assets: null });
+  check('compat: explicit null assets -> default portfolio',
+    nulled.assets.length === DEFAULT_PARAMS.assets.length);
+}
+
+// 27. Defensive guards keep pathological inputs finite (never NaN).
+{
+  // A price return below -100 %/yr is clamped by monthlyRate, not turned into NaN.
+  const crash = simulate(Object.assign({}, base, {
+    yearsToRetirement: 5, assets: singleAsset({ annualReturn: -150 }),
+  }));
+  check('guard: sub -100% return stays finite', Number.isFinite(crash.summary.atRetirement.value));
+  check('guard: sub -100% return destroys value',
+    crash.summary.atRetirement.value < crash.summary.totalContributions);
+
+  // All allocations zero: normalizeWeights falls back to an equal split.
+  const zero = simulate(Object.assign({}, base, {
+    startingAmount: 1000, startingCostBasis: 1000, monthlyContribution: 120, yearsToRetirement: 1,
+    assets: [
+      { id: 'a', allocationStart: 0, allocation: 0, allocationLate: 0, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'b', allocationStart: 0, allocation: 0, allocationLate: 0, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  }));
+  const per = zero.summary.atRetirement.perAsset;
+  check('guard: all-zero allocations split equally', approx(per[0].value, per[1].value) && per[0].value > 0,
+    `${per[0].value} != ${per[1].value}`);
+  check('guard: all-zero allocations stay finite', per.every((a) => Number.isFinite(a.value)));
+
+  // A negative withdrawalShare is clamped to 0 ("don't sell from here").
+  const neg = simulate(Object.assign({}, base, {
+    startingAmount: 200000, startingCostBasis: 200000, monthlyContribution: 0, yearsToRetirement: 0,
+    monthlyWithdrawal: 1000, maxRetirementYears: 2,
+    assets: [
+      { id: 'sell', allocationStart: 50, allocation: 50, allocationLate: 50, withdrawalShare: 100, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'keep', allocationStart: 50, allocation: 50, allocationLate: 50, withdrawalShare: -50, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  }));
+  const lastNeg = neg.months[neg.months.length - 1];
+  check('guard: negative withdrawalShare treated as 0', approx(lastNeg.perAsset[1], 100000), lastNeg.perAsset[1]);
+}
+
+// 28. Allocations need not sum to 100 — the math normalizes by ratio.
+{
+  // Contribution column sums to 200 (60 + 140) but should still split 30/70.
+  const r = simulate(Object.assign({}, base, {
+    startingAmount: 0, startingCostBasis: 0, monthlyContribution: 100, yearsToRetirement: 1,
+    assets: [
+      { id: 'a', allocationStart: 30, allocation: 60, allocationLate: 60, annualReturn: 0, dividendYield: 0, ter: 0 },
+      { id: 'b', allocationStart: 70, allocation: 140, allocationLate: 140, annualReturn: 0, dividendYield: 0, ter: 0 },
+    ],
+  }));
+  const per = Object.fromEntries(r.summary.atRetirement.perAsset.map((x) => [x.id, x.value]));
+  // 1 200 contributed over the year, split 60:140 -> 360 / 840.
+  check('normalize: contributions split by ratio, not raw %', approx(per.a, 360) && approx(per.b, 840),
+    `${per.a} / ${per.b}`);
+}
+
+// 29. reinvestDividends:false routes net dividends into summary.dividends.paidOut.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 10000, startingCostBasis: 10000, monthlyContribution: 0, yearsToRetirement: 1,
+    reinvestDividends: false, assets: singleAsset({ dividendYield: 12 }),
+  });
+  const r = simulate(p);
+  // Zero price return + no reinvestment: value holds at 10 000 the whole year, so
+  // each month pays 10 000 · 1 % gross = 100 (72.5 net), 12 months -> 870 paid out.
+  const expectedPaidOut = 12 * (10000 * 0.12 / 12) * (1 - 0.275);
+  check('paidOut: collects net accumulation dividends', approx(r.summary.dividends.paidOut, expectedPaidOut),
+    `${r.summary.dividends.paidOut} != ${expectedPaidOut}`);
+  check('paidOut: value unchanged without reinvestment', approx(r.summary.atRetirement.value, 10000),
+    r.summary.atRetirement.value);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

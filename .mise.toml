@@ -1,9 +1,34 @@
 [tools]
 node = "lts"
 
+# `[hooks]` is still gated behind the experimental flag in this mise version.
+[settings]
+experimental = true
+
+# Provision the full dev/test toolchain on container startup: `postinstall` runs
+# after `mise install` brings the tools in. Keeping the browser-test deps here
+# (rather than in package.json) keeps them out of the published package and CI,
+# but still installs them automatically in the sandbox.
+[hooks]
+postinstall = "mise run setup"
+
+[tasks.setup]
+description = "Install all dev/test dependencies (node modules + Playwright + Chromium). Idempotent — safe to re-run."
+run = """
+[ -d node_modules ] || npm ci
+node -e "require.resolve('playwright')" 2>/dev/null || npm install --no-save playwright@1.60.0
+npx --yes playwright@1.60.0 install chromium
+# Chromium needs system libs (libglib-2.0, etc.) that aren't in the base sandbox.
+npx --yes playwright@1.60.0 install-deps chromium || sudo npx --yes playwright@1.60.0 install-deps chromium
+"""
+
 [tasks.test]
 run = "node test.js"
 description = "Run the simulation unit tests"
+
+[tasks.coverage]
+run = "npm run test:coverage"
+description = "Run the unit tests with the 100% coverage gate on calculator.js (c8)"
 
 [tasks.lint]
 run = "npx eslint ."
@@ -14,11 +39,11 @@ run = "python3 -m http.server 8000"
 description = "Serve the site locally on http://localhost:8000"
 
 [tasks.verify]
-description = "Headless-browser smoke test (installs Playwright + Chromium on first run)"
-run = """
-node -e "require.resolve('playwright')" 2>/dev/null || npm install --no-save playwright@1.60.0
-npx --yes playwright@1.60.0 install chromium
-# Chromium needs system libs (libglib-2.0, etc.) that aren't in the base sandbox.
-npx --yes playwright@1.60.0 install-deps chromium || sudo npx --yes playwright@1.60.0 install-deps chromium
-node test/smoke.js
-"""
+description = "Headless-browser smoke test (loads the page, checks the charts render, no JS errors)"
+depends = ["setup"]
+run = "node test/smoke.js"
+
+[tasks.e2e]
+description = "End-to-end browser scenario tests (language, persistence, export/import, goal-seek, drawdown)"
+depends = ["setup"]
+run = "node test/e2e.js"

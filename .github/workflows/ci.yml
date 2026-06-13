@@ -15,7 +15,7 @@ jobs:
           node-version: lts/*
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm run test:coverage   # unit tests + 100% coverage gate on calculator.js
       - run: npm run lint
       # The committed vendor/ copy must match the chart.js version from npm,
       # so a Dependabot bump fails CI until `npm run sync-vendor` is re-run.
@@ -24,9 +24,9 @@ jobs:
           npm run sync-vendor
           git diff --exit-code vendor/
 
-      # Headless-browser smoke test (test/smoke.js). Playwright is installed
-      # with --no-save so it stays out of package.json; the Chromium download
-      # (~110 MB) is cached between runs, keyed by the pinned version below.
+      # Headless-browser tests (test/smoke.js + test/e2e.js). Playwright is
+      # installed with --no-save so it stays out of package.json; the Chromium
+      # download (~110 MB) is cached between runs, keyed by the pinned version below.
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -41,3 +41,4 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - run: node test/smoke.js
+      - run: node test/e2e.js

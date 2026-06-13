@@ -1,0 +1,10 @@
+{
+  "//": "Coverage gate for the pure simulation logic. calculator.js is fully exercised by test.js; app.js/i18n.js are DOM-coupled and covered behaviorally by the smoke/e2e suites, so they are not gated here.",
+  "include": ["calculator.js"],
+  "check-coverage": true,
+  "branches": 100,
+  "functions": 100,
+  "lines": 100,
+  "statements": 100,
+  "reporter": ["text", "lcov"]
+}

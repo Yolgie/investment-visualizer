@@ -6,11 +6,13 @@
   "license": "MIT",
   "scripts": {
     "test": "node test.js",
+    "test:coverage": "c8 node test.js",
     "lint": "eslint .",
     "sync-vendor": "node -e \"const fs=require('fs');fs.mkdirSync('vendor',{recursive:true});for(const f of ['chart.umd.js','chart.umd.js.map'])fs.copyFileSync('node_modules/chart.js/dist/'+f,'vendor/'+f)\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "c8": "^10.1.3",
     "eslint": "^10.4.1"
   },
   "dependencies": {
