@@ -16,6 +16,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:coverage   # unit tests + 100% coverage gate on calculator.js
+      - run: npm run typecheck       # tsc --checkJs over the simulation math
       - run: npm run lint
       # The committed vendor/ copy must match the chart.js version from npm,
       # so a Dependabot bump fails CI until `npm run sync-vendor` is re-run.

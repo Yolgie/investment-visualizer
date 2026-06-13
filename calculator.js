@@ -1,3 +1,4 @@
+// @ts-check
 /*
  * Pure simulation math for the retirement calculator.
  * No DOM access — loaded via <script> in the browser and require()'d by test.js.
@@ -5,8 +6,94 @@
  * All rate parameters are human-readable percentages (27.5 means 27.5 %).
  * Money values are EUR. The simulation runs in nominal terms; conversion to
  * real (today's purchasing power) values is presentation-only and happens in app.js.
+ *
+ * Type-checked with `tsc --checkJs` (see tsconfig.json / `npm run typecheck`);
+ * the JSDoc typedefs below are the authoritative shapes for params and results.
  */
 
+/**
+ * @typedef {{ value: number, unit: 'percent' | 'amount' }} ContributionIncrease
+ * @typedef {{ enabled: boolean, year: number }} AllocationSwitch
+ *
+ * @typedef {Object} Asset
+ * @property {string} id
+ * @property {number} [allocationStart] split of the starting amount (defaults to `allocation`)
+ * @property {number} allocation        split of the monthly contributions
+ * @property {number} [allocationLate]  split after the switch year
+ * @property {number} [withdrawalShare] share sold to fund the withdrawal (defaults to 0)
+ * @property {number} annualReturn      price appreciation, % p.a.
+ * @property {number} dividendYield     distributions, % p.a.
+ * @property {number} ter               fund costs, % p.a.
+ *
+ * @typedef {Object} Params
+ * @property {number} startingAmount
+ * @property {number} startingCostBasis
+ * @property {number} monthlyContribution
+ * @property {ContributionIncrease} contributionIncrease
+ * @property {number} yearsToRetirement
+ * @property {Asset[]} assets
+ * @property {AllocationSwitch} allocationSwitch
+ * @property {boolean} reinvestDividends
+ * @property {number} scenarioSpread
+ * @property {number} monthlyWithdrawal
+ * @property {boolean} withdrawalInflationAdjusted
+ * @property {number} kest
+ * @property {number} inflation
+ * @property {number} maxRetirementYears
+ * @property {number} targetAmount
+ *
+ * The shape after withDefaults(): the optional allocation/withdrawal fields are
+ * resolved to numbers, so the simulation never has to re-handle missing values.
+ * @typedef {Asset & { allocationStart: number, allocationLate: number, withdrawalShare: number }} ResolvedAsset
+ * @typedef {Omit<Params, 'assets'> & { assets: ResolvedAsset[] }} ResolvedParams
+ *
+ * @typedef {{ id: string, value: number, basis: number, growthRate: number, dividendRate: number, withdrawalShare: number }} Bucket
+ *
+ * @typedef {Object} MonthRecord
+ * @property {number} month
+ * @property {number} value
+ * @property {number} basis
+ * @property {number} contributions
+ * @property {number} dividends net dividends received this month
+ * @property {number[]} perAsset bucket values, same order as params.assets
+ * @property {'accumulation' | 'drawdown'} phase
+ *
+ * @typedef {Object} AssetResult
+ * @property {string} id
+ * @property {number} value
+ * @property {number} basis
+ * @property {number} netIfSold
+ *
+ * @typedef {Object} SaleRecord
+ * @property {string} id
+ * @property {number} gross
+ * @property {number} net
+ * @property {number} kest
+ *
+ * @typedef {Object} FirstRetirementYear
+ * @property {number} withdrawalsNet
+ * @property {{ gross: number, net: number, kest: number }} dividends
+ * @property {SaleRecord[]} sales
+ *
+ * @typedef {Object} Summary
+ * @property {number} accumulationMonths
+ * @property {{ value: number, basis: number, netIfSold: number, perAsset: AssetResult[] }} atRetirement
+ * @property {number} totalContributions
+ * @property {number} totalGrowth
+ * @property {{ gross: number, net: number, paidOut: number }} dividends
+ * @property {number} dividendsPerYearAtRetirement
+ * @property {number} kestOnDividends
+ * @property {number} kestOnSales
+ * @property {number | null} runOutMonth
+ * @property {number | null} lastsYears
+ * @property {number} finalValue
+ * @property {boolean} keepsGrowing
+ * @property {FirstRetirementYear} firstRetirementYear
+ *
+ * @typedef {{ months: MonthRecord[], summary: Summary }} SimulationResult
+ */
+
+/** @type {Params} */
 const DEFAULT_PARAMS = {
   startingAmount: 10000,
   // Cost basis of the starting amount (the part that is already-taxed invested capital).
@@ -53,39 +140,56 @@ const DEFAULT_PARAMS = {
   targetAmount: 1000000,
 };
 
+/**
+ * Fill missing/legacy fields with defaults. Accepts a partial (e.g. an older
+ * saved/exported file) and returns a complete, simulate-ready params object
+ * whose assets have every optional allocation/withdrawal field resolved.
+ * @param {Partial<Params>} [partial]
+ * @returns {ResolvedParams}
+ */
 function withDefaults(partial) {
   const p = Object.assign({}, DEFAULT_PARAMS, partial);
   p.contributionIncrease = Object.assign({}, DEFAULT_PARAMS.contributionIncrease, partial && partial.contributionIncrease);
   p.allocationSwitch = Object.assign({}, DEFAULT_PARAMS.allocationSwitch, partial && partial.allocationSwitch);
-  p.assets = (p.assets || DEFAULT_PARAMS.assets).map((a) => {
-    const asset = Object.assign({}, a);
-    if (asset.allocationStart == null) asset.allocationStart = asset.allocation;
-    // Inputs from before withdrawalShare existed: 0 for every asset means
-    // "no preference", which falls back to value-proportional selling.
-    if (asset.withdrawalShare == null) asset.withdrawalShare = 0;
-    return asset;
+  const assets = (p.assets || DEFAULT_PARAMS.assets).map((a) => {
+    // Fields added after older files were saved fall back: the allocation
+    // columns mirror the contribution split, withdrawalShare to 0 ("no
+    // preference" => value-proportional selling).
+    const allocation = a.allocation;
+    return {
+      ...a,
+      allocationStart: a.allocationStart ?? allocation,
+      allocationLate: a.allocationLate ?? allocation,
+      withdrawalShare: a.withdrawalShare ?? 0,
+    };
   });
-  return p;
+  return { ...p, assets };
 }
 
+/** @param {number} annualPercent @returns {number} */
 function monthlyRate(annualPercent) {
   // Clamp so a pathological input (< -100 % p.a.) cannot produce NaN.
   const annual = Math.max(annualPercent / 100, -0.99);
   return Math.pow(1 + annual, 1 / 12) - 1;
 }
 
+/** @param {number[]} weights @returns {number[]} */
 function normalizeWeights(weights) {
   const sum = weights.reduce((s, w) => s + w, 0);
   if (sum <= 0) return weights.map(() => 1 / weights.length);
   return weights.map((w) => w / sum);
 }
 
+/** @param {ResolvedParams} params @param {number} year @returns {number[]} */
 function activeAllocation(params, year) {
   const late = params.allocationSwitch.enabled && year >= params.allocationSwitch.year;
   return normalizeWeights(params.assets.map((a) => (late ? a.allocationLate : a.allocation)));
 }
 
-// Net proceeds if the whole portfolio were sold today (KESt on gains only).
+/**
+ * Net proceeds if the whole portfolio were sold today (KESt on gains only).
+ * @param {Bucket[]} buckets @param {number} kest @returns {number}
+ */
 function netLiquidationValue(buckets, kest) {
   return buckets.reduce((sum, b) => sum + b.value - Math.max(0, b.value - b.basis) * kest, 0);
 }
@@ -96,6 +200,9 @@ function netLiquidationValue(buckets, kest) {
  *
  * months: one entry per simulated month:
  *   { month, value, basis, contributions, phase: 'accumulation' | 'drawdown' }
+ * @param {Partial<Params>} rawParams
+ * @param {number} [scenarioShift]
+ * @returns {SimulationResult}
  */
 function simulate(rawParams, scenarioShift = 0) {
   const params = withDefaults(rawParams);
@@ -119,6 +226,7 @@ function simulate(rawParams, scenarioShift = 0) {
     b.basis = startBasis * startWeights[i];
   });
 
+  /** @type {MonthRecord[]} */
   const months = [];
   let totalContributions = params.startingAmount;
   let dividendsGross = 0;
@@ -130,6 +238,7 @@ function simulate(rawParams, scenarioShift = 0) {
   const totalValue = () => buckets.reduce((s, b) => s + b.value, 0);
   const totalBasis = () => buckets.reduce((s, b) => s + b.basis, 0);
 
+  /** @param {number} month @param {'accumulation' | 'drawdown'} phase @param {number} [dividends] */
   const record = (month, phase, dividends = 0) => {
     months.push({
       month, value: totalValue(), basis: totalBasis(), contributions: totalContributions,
@@ -164,6 +273,7 @@ function simulate(rawParams, scenarioShift = 0) {
 
   // Reinvest an amount proportionally to current bucket values (already-taxed money,
   // so it raises the cost basis too).
+  /** @param {number} amount */
   const reinvest = (amount) => {
     const v = totalValue();
     if (v <= 0 || amount <= 0) return;
@@ -265,8 +375,8 @@ function simulate(rawParams, scenarioShift = 0) {
       if (v <= 1e-9) break;
       const shareSum = sellable.reduce((s, b) => s + b.withdrawalShare, 0);
       const weightOf = shareSum > 0
-        ? (b) => b.withdrawalShare / shareSum
-        : (b) => b.value / v;
+        ? (/** @type {Bucket} */ b) => b.withdrawalShare / shareSum
+        : (/** @type {Bucket} */ b) => b.value / v;
       const needThisPass = needNet;
       for (const b of sellable) {
         const netWanted = needThisPass * weightOf(b);
@@ -342,7 +452,11 @@ function simulate(rawParams, scenarioShift = 0) {
   };
 }
 
-/** Run min / avg / max scenarios (returns shifted by -spread / 0 / +spread pp). */
+/**
+ * Run min / avg / max scenarios (returns shifted by -spread / 0 / +spread pp).
+ * @param {Partial<Params>} rawParams
+ * @returns {{ min: SimulationResult, avg: SimulationResult, max: SimulationResult }}
+ */
 function simulateScenarios(rawParams) {
   const params = withDefaults(rawParams);
   return {
@@ -359,6 +473,9 @@ function simulateScenarios(rawParams) {
  * `shift` is the return-rate lever: percentage points added to every asset.
  * The deflator uses p.yearsToRetirement, so it self-adjusts when the
  * years-to-retirement lever moves p.
+ * @param {Params} p a fully-defaulted params object (callers pass withDefaults output)
+ * @param {number} [shift]
+ * @returns {number}
  */
 function realValueAtRetirement(p, shift = 0) {
   const v = simulate(p, shift).summary.atRetirement.value;
@@ -372,6 +489,11 @@ function realValueAtRetirement(p, shift = 0) {
  *   'belowFloor'  – even the lowest x overshoots (would need to go lower than lo)
  *   'unreachable' – even the highest x falls short (target out of range)
  * `expandHi` (optional) doubles hi until f(hi) >= 0 or the cap is hit.
+ * @param {(x: number) => number} f
+ * @param {number} lo
+ * @param {number} hi
+ * @param {{ expandHi?: boolean, cap?: number, iterations?: number }} [opts]
+ * @returns {{ value: number } | { status: 'belowFloor' | 'unreachable' }}
  */
 function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {}) {
   if (f(lo) > 0) return { status: 'belowFloor' };
@@ -395,13 +517,16 @@ function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {
  *
  * Note: with a non-positive real return the years lever can be non-monotonic;
  * the belowFloor/unreachable statuses cover any non-bracketed case gracefully.
+ * @param {Partial<Params>} rawParams
  */
 function solveTargets(rawParams) {
   const params = withDefaults(rawParams);
   const target = params.targetAmount;
   const current = realValueAtRetirement(params);
 
+  /** @typedef {{ current: number, lo: number, hi: number, expandHi?: boolean, value: (x: number) => number }} LeverSpec */
   // Each lever: a search range and how it maps x -> real value at retirement.
+  /** @type {Record<string, LeverSpec>} */
   const specs = {
     monthlyContribution: {
       current: params.monthlyContribution, lo: 0, hi: 1e5, expandHi: true,
@@ -427,14 +552,13 @@ function solveTargets(rawParams) {
     },
   };
 
+  /** @type {Record<string, { current: number, needed: number | null, status: string }>} */
   const levers = {};
   for (const [key, spec] of Object.entries(specs)) {
     const res = bisect((x) => spec.value(x) - target, spec.lo, spec.hi, { expandHi: spec.expandHi });
-    levers[key] = {
-      current: spec.current,
-      needed: res.value ?? null,
-      status: res.value != null ? 'ok' : res.status,
-    };
+    levers[key] = 'value' in res
+      ? { current: spec.current, needed: res.value, status: 'ok' }
+      : { current: spec.current, needed: null, status: res.status };
   }
 
   return { target, current, reached: current >= target, levers };
