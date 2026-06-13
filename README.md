@@ -60,6 +60,9 @@ network connection.
 npm ci        # dev tooling only — the site itself has no build step
 npm test      # unit tests for the simulation math (node test.js)
 npm run lint  # eslint (needs Node >= 20)
+mise run verify  # headless-browser smoke test (loads the page, checks the
+                 # charts render and there are no JS errors; installs
+                 # Playwright + Chromium on first run, see test/smoke.js)
 ```
 
 ## Deploy to GitHub Pages
@@ -87,6 +90,28 @@ npm ci && npm run sync-vendor
 and commit the result. CI fails if `vendor/` is out of sync with the
 installed npm version.
 
+## Data format & compatibility
+
+Inputs are persisted (opt-in localStorage) and exported/imported as JSON with a
+versioned shape:
+
+```json
+{ "app": "retirement-calc", "version": 1, "params": { … }, "displayReal": false }
+```
+
+- **localStorage key:** `retirement-calc-v1` (language is stored separately under
+  `retirement-calc-lang` and is not gated by the opt-in).
+- **`params`** mirrors the object `calculator.simulate()` consumes — see
+  `DEFAULT_PARAMS` in `calculator.js` for the authoritative shape.
+- **Backwards compatibility is a contract:** older saved/exported files must keep
+  loading. New fields are added *non-breakingly* by giving them defaults in two
+  places — `withDefaults()` (`calculator.js`) for the math and the form loader in
+  `setFormValues()` (`app.js`) for the UI. This is how `allocationStart` and
+  `withdrawalShare` were added without breaking existing data.
+- **If you ever make a breaking change** to `params` (rename/repurpose a field,
+  change units), bump the storage key to `-v2` and the export `version`, and add
+  a migration that upgrades old objects — otherwise old files load silently wrong.
+
 ## Future ideas
 
 - [ ] *Ausschüttungsgleiche Erträge*: annual taxation of accumulating ETFs with
@@ -94,9 +119,13 @@ installed npm version.
 - [ ] Monte Carlo volatility simulation: configurable volatility % and number of
       runs, percentile bands, probability the money lasts. The single-run
       simulation core is already shaped to accept a per-month return sequence.
-- [ ] Rebalancing / glide path toward bonds approaching retirement
-      (currently the portfolio keeps its allocation; only new contributions
-      can be redirected)
+- [ ] Rebalancing mechanics at retirement: periodically sell/buy to restore a
+      target allocation once drawdown starts (note: rebalancing realizes gains,
+      so it triggers KESt — the model would need to account for that), and/or a
+      glide path that shifts toward bonds approaching retirement. Currently the
+      portfolio keeps its allocation untouched; only new contributions can be
+      redirected (via the allocation switch) and the withdrawal-source column
+      controls which assets are sold down first.
 - [ ] Custom / additional asset rows
 - [ ] State pension as income offset during drawdown
 - [ ] Multiple saved scenarios side by side
