@@ -60,6 +60,7 @@ const I18N = {
     chartRetirement: 'Pensionsantritt',
     chartYear: 'Jahr',
     chartDividendsPerYear: 'Dividenden in diesem Jahr (netto)',
+    chartLogScale: 'Logarithmische Skala',
     assetChartTitle: 'Vermögen nach Anlageklasse',
 
     exportInputs: 'Eingaben exportieren',
@@ -158,6 +159,7 @@ const I18N = {
     chartRetirement: 'Retirement',
     chartYear: 'Year',
     chartDividendsPerYear: 'Dividends in this year (net)',
+    chartLogScale: 'Logarithmic scale',
     assetChartTitle: 'Portfolio by asset class',
 
     exportInputs: 'Export inputs',

@@ -134,6 +134,7 @@ table input[type="number"] { min-width: 4.5rem; padding: 0.3rem 0.4rem; }
 .button-row button:hover { border-color: var(--accent); color: var(--accent); }
 #resetDefaults:hover { border-color: var(--warn); color: var(--warn); }
 
+.chart-option { margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; }
 .chart-wrap { position: relative; height: 380px; }
 .pie-wrap { position: relative; height: 300px; max-width: 460px; margin: 0 auto; }
 

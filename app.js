@@ -288,6 +288,23 @@ function renderChart(scenarios, params, displayReal) {
     },
   ];
 
+  const logScale = $('logScale').checked;
+  // Linear: frame the chart around the avg scenario so it owns the real estate;
+  // the max line is allowed to run off the top. Log: let it autoscale so the
+  // whole min–max band, max line included, stays inside the viewport.
+  const avgPeak = totalAvg.reduce((m, p) => Math.max(m, p.y), 0);
+  const yScale = logScale
+    ? {
+        type: 'logarithmic',
+        ticks: { callback: (v) => fmtMoney(v) },
+      }
+    : {
+        type: 'linear',
+        beginAtZero: true,
+        max: avgPeak > 0 ? avgPeak * 1.05 : undefined,
+        ticks: { callback: (v) => fmtMoney(v) },
+      };
+
   const retirementYear = START_YEAR + params.yearsToRetirement;
   const options = {
     responsive: true,
@@ -299,10 +316,7 @@ function renderChart(scenarios, params, displayReal) {
         title: { display: true, text: t('chartYear') },
         ticks: { callback: (v) => Math.round(v), maxTicksLimit: 15 },
       },
-      y: {
-        beginAtZero: true,
-        ticks: { callback: (v) => fmtMoney(v) },
-      },
+      y: yScale,
     },
     plugins: {
       retirementLine: { year: retirementYear, label: t('chartRetirement') },
@@ -646,6 +660,8 @@ function init() {
     if (file) importInputs(file);
     $('importFile').value = ''; // allow re-importing the same file
   });
+
+  $('logScale').addEventListener('change', recalc);
 
   $('langToggle').addEventListener('click', () => setLanguage(lang === 'de' ? 'en' : 'de'));
 }
