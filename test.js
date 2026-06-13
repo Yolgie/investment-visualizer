@@ -3,7 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios, realValueAtRetirement, solveTargets,
+  DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios,
+  realValueAtRetirement, realFinalValue, solveTargets,
 } = require('./calculator.js');
 const { I18N } = require('./i18n.js');
 
@@ -417,6 +418,63 @@ const base = {
     huge.levers.returnShift.status === 'unreachable', huge.levers.returnShift.status);
 }
 
+// 25b. Stable-value goal: each solved lever lands on the preservation boundary,
+//      where the real value at the end of drawdown equals the real value at
+//      retirement (the withdrawals are exactly funded, no erosion).
+{
+  // A setup whose real value currently erodes (modest pot, meaningful withdrawal),
+  // so every lever must rise to fix it — i.e. lands inside its search range.
+  const p = Object.assign({}, base, {
+    startingAmount: 10000, startingCostBasis: 10000, monthlyContribution: 500,
+    yearsToRetirement: 30, inflation: 2, assets: singleAsset({ annualReturn: 6 }),
+    monthlyWithdrawal: 2500, withdrawalInflationAdjusted: true, maxRetirementYears: 40,
+    goalType: 'stableValue',
+  });
+  const sol = solveTargets(p);
+  check('stable: goalType echoed', sol.goalType === 'stableValue', sol.goalType);
+  check('stable: not reached for an eroding setup', sol.reached === false);
+  check('stable: target is the value at retirement', approx(sol.target, sol.current, 1e-9));
+
+  const apply = {
+    monthlyContribution: (x) => ({ ...p, monthlyContribution: x }),
+    contributionIncrease: (x) => ({ ...p, contributionIncrease: { value: x, unit: 'percent' } }),
+    yearsToRetirement: (x) => ({ ...p, yearsToRetirement: x }),
+    startingAmount: (x) => ({ ...p, startingAmount: x }),
+  };
+  for (const key of Object.keys(apply)) {
+    const lever = sol.levers[key];
+    check(`stable solve ${key}: status ok`, lever.status === 'ok', lever.status);
+    const q = apply[key](lever.needed);
+    // The years lever lands on a whole-month boundary (rounded), so allow slack.
+    const eps = key === 'yearsToRetirement' ? 3e-2 : 1e-3;
+    check(`stable solve ${key}: real value preserved`,
+      approx(realFinalValue(q), realValueAtRetirement(q), eps),
+      `${realFinalValue(q)} != ${realValueAtRetirement(q)}`);
+  }
+  // returnShift maps to the scenario shift, not a params field.
+  const rs = sol.levers.returnShift;
+  check('stable solve returnShift: status ok', rs.status === 'ok', rs.status);
+  check('stable solve returnShift: real value preserved',
+    approx(realFinalValue(p, rs.needed), realValueAtRetirement(p, rs.needed), 1e-3),
+    `${realFinalValue(p, rs.needed)} != ${realValueAtRetirement(p, rs.needed)}`);
+}
+
+// 25c. Stable-value goal: a richly funded, lightly drawn portfolio already holds
+//      its real value, so the goal is reached and every lever could be lower.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 2000000, startingCostBasis: 2000000, monthlyContribution: 1000,
+    yearsToRetirement: 20, inflation: 2, assets: singleAsset({ annualReturn: 6 }),
+    monthlyWithdrawal: 500, withdrawalInflationAdjusted: true, maxRetirementYears: 40,
+    goalType: 'stableValue',
+  });
+  const sol = solveTargets(p);
+  check('stable rich: reached', sol.reached === true);
+  check('stable rich: finalReal exceeds value at retirement', sol.finalReal >= sol.current);
+  check('stable rich: monthly contribution could be lower (belowFloor)',
+    sol.levers.monthlyContribution.status === 'belowFloor', sol.levers.monthlyContribution.status);
+}
+
 // 26. Backwards-compat contract: withDefaults fills fields added after older
 //     saved/exported files were written (the README's "non-breaking" promise).
 {
@@ -437,6 +495,7 @@ const base = {
   check('compat: withdrawalShare defaults to 0',
     p.assets[0].withdrawalShare === 0 && p.assets[1].withdrawalShare === 0);
   check('compat: targetAmount default filled', p.targetAmount === DEFAULT_PARAMS.targetAmount, p.targetAmount);
+  check('compat: goalType defaults to amount', p.goalType === 'amount', p.goalType);
   check('compat: contributionIncrease default filled',
     p.contributionIncrease.value === 0 && p.contributionIncrease.unit === 'percent');
   check('compat: allocationSwitch default filled',

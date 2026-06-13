@@ -159,11 +159,19 @@
         <h2 data-i18n="targetSection"></h2>
         <div class="grid">
           <label>
+            <span data-i18n="goalType"></span>
+            <select id="goalType">
+              <option value="amount" data-i18n="goalTypeAmount"></option>
+              <option value="stableValue" data-i18n="goalTypeStable"></option>
+            </select>
+          </label>
+          <label id="targetAmountRow">
             <span data-i18n="targetAmount"></span>
             <input type="number" id="targetAmount" min="0" step="50000">
             <small data-i18n="targetAmountHint"></small>
           </label>
         </div>
+        <p class="hint hidden" id="goalStableHint" data-i18n="goalTypeStableHint"></p>
       </section>
 
       <details id="parametersSection">

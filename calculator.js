@@ -40,6 +40,7 @@
  * @property {number} kest
  * @property {number} inflation
  * @property {number} maxRetirementYears
+ * @property {'amount' | 'stableValue'} goalType
  * @property {number} targetAmount
  *
  * The shape after withDefaults(): the optional allocation/withdrawal fields are
@@ -135,8 +136,14 @@ const DEFAULT_PARAMS = {
   // Drawdown simulation cap.
   maxRetirementYears: 60,
 
-  // Goal: desired value at retirement, expressed in today's purchasing power.
-  // The target block solves how each lever would have to change to reach it.
+  // Goal mode for the goal-seek block:
+  //   'amount'      – reach a fixed targetAmount at retirement (real terms).
+  //   'stableValue' – the portfolio's real value must not decrease over the
+  //                   drawdown phase, i.e. it funds the withdrawals indefinitely
+  //                   while keeping today's purchasing power intact.
+  goalType: 'amount',
+  // Goal (amount mode): desired value at retirement, expressed in today's
+  // purchasing power. The target block solves how each lever would reach it.
   targetAmount: 1000000,
 };
 
@@ -483,6 +490,21 @@ function realValueAtRetirement(p, shift = 0) {
 }
 
 /**
+ * Portfolio value at the end of the drawdown horizon (avg scenario), deflated to
+ * today's purchasing power. Used by the stable-value goal: the portfolio keeps
+ * its real value through retirement iff this is >= realValueAtRetirement.
+ * The final value is measured at yearsToRetirement + maxRetirementYears (or it is
+ * zero, if the money ran out earlier — in which case the deflator is irrelevant).
+ * @param {Params} p a fully-defaulted params object (callers pass withDefaults output)
+ * @param {number} [shift]
+ * @returns {number}
+ */
+function realFinalValue(p, shift = 0) {
+  const v = simulate(p, shift).summary.finalValue;
+  return v / Math.pow(1 + p.inflation / 100, p.yearsToRetirement + p.maxRetirementYears);
+}
+
+/**
  * Solve f(x) === 0 for a monotonically increasing f by bisection.
  * Returns { value } on success, or { status } when the target isn't bracketed
  * in the searchable range:
@@ -511,9 +533,16 @@ function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {
 
 /**
  * For each lever (held independently, all else fixed), find the value it would
- * need to reach `params.targetAmount` (real, today's purchasing power) at
- * retirement in the avg scenario. Each lever's value-at-retirement is
- * monotonically increasing in that lever, so bisection converges.
+ * need to reach the configured goal in the avg scenario. Each lever's
+ * goal-distance is monotonically increasing in that lever, so bisection converges.
+ *
+ * Two goal modes (params.goalType):
+ *   'amount'      – hit params.targetAmount (real, today's purchasing power) at
+ *                   retirement. Objective: realValueAtRetirement − targetAmount.
+ *   'stableValue' – the portfolio's real value must not shrink over the drawdown
+ *                   phase. Objective: realFinalValue − realValueAtRetirement, i.e.
+ *                   what's left at the end (real) minus what you started retirement
+ *                   with (real). >= 0 means the withdrawals are funded indefinitely.
  *
  * Note: with a non-positive real return the years lever can be non-monotonic;
  * the belowFloor/unreachable statuses cover any non-bracketed case gracefully.
@@ -521,52 +550,69 @@ function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {
  */
 function solveTargets(rawParams) {
   const params = withDefaults(rawParams);
-  const target = params.targetAmount;
+  const stable = params.goalType === 'stableValue';
   const current = realValueAtRetirement(params);
+  // Real value left at the end of the drawdown horizon — only meaningful for the
+  // stable-value goal, where it is compared against `current`.
+  const finalReal = realFinalValue(params);
 
-  /** @typedef {{ current: number, lo: number, hi: number, expandHi?: boolean, value: (x: number) => number }} LeverSpec */
-  // Each lever: a search range and how it maps x -> real value at retirement.
+  // f(p, shift) === 0 exactly when the lever configured by (p, shift) meets the
+  // goal; positive when it overshoots. Monotonically increasing in every lever.
+  const objective = stable
+    ? (/** @type {Params} */ p, /** @type {number} */ shift) => realFinalValue(p, shift) - realValueAtRetirement(p, shift)
+    : (/** @type {Params} */ p, /** @type {number} */ shift) => realValueAtRetirement(p, shift) - params.targetAmount;
+
+  /** @typedef {{ current: number, lo: number, hi: number, expandHi?: boolean, apply: (x: number) => { p: Params, shift: number } }} LeverSpec */
+  // Each lever: a search range and how it maps x -> a (params, scenario-shift) pair.
   /** @type {Record<string, LeverSpec>} */
   const specs = {
     monthlyContribution: {
       current: params.monthlyContribution, lo: 0, hi: 1e5, expandHi: true,
-      value: (x) => realValueAtRetirement({ ...params, monthlyContribution: x }),
+      apply: (x) => ({ p: { ...params, monthlyContribution: x }, shift: 0 }),
     },
     contributionIncrease: {
       current: params.contributionIncrease.value, lo: -50, hi: 100,
-      value: (x) => realValueAtRetirement({
-        ...params, contributionIncrease: { value: x, unit: 'percent' },
-      }),
+      apply: (x) => ({ p: { ...params, contributionIncrease: { value: x, unit: 'percent' } }, shift: 0 }),
     },
     yearsToRetirement: {
       current: params.yearsToRetirement, lo: 0, hi: 80,
-      value: (x) => realValueAtRetirement({ ...params, yearsToRetirement: x }),
+      apply: (x) => ({ p: { ...params, yearsToRetirement: x }, shift: 0 }),
     },
     startingAmount: {
       current: params.startingAmount, lo: 0, hi: 1e6, expandHi: true,
-      value: (x) => realValueAtRetirement({ ...params, startingAmount: x }),
+      apply: (x) => ({ p: { ...params, startingAmount: x }, shift: 0 }),
     },
     returnShift: {
       current: 0, lo: -20, hi: 50,
-      value: (x) => realValueAtRetirement(params, x),
+      apply: (x) => ({ p: params, shift: x }),
     },
   };
 
   /** @type {Record<string, { current: number, needed: number | null, status: string }>} */
   const levers = {};
   for (const [key, spec] of Object.entries(specs)) {
-    const res = bisect((x) => spec.value(x) - target, spec.lo, spec.hi, { expandHi: spec.expandHi });
+    const f = (/** @type {number} */ x) => { const { p, shift } = spec.apply(x); return objective(p, shift); };
+    const res = bisect(f, spec.lo, spec.hi, { expandHi: spec.expandHi });
     levers[key] = 'value' in res
       ? { current: spec.current, needed: res.value, status: 'ok' }
       : { current: spec.current, needed: null, status: res.status };
   }
 
-  return { target, current, reached: current >= target, levers };
+  return {
+    goalType: stable ? 'stableValue' : 'amount',
+    // Amount goal: the fixed target. Stable-value goal: the value you start
+    // retirement with — the bar the end-of-drawdown value must clear.
+    target: stable ? current : params.targetAmount,
+    current,
+    finalReal,
+    reached: stable ? finalReal >= current : current >= params.targetAmount,
+    levers,
+  };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios,
-    realValueAtRetirement, solveTargets,
+    realValueAtRetirement, realFinalValue, solveTargets,
   };
 }
