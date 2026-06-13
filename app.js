@@ -1,7 +1,7 @@
 /* DOM wiring: reads inputs, runs the simulation, renders chart + summary,
  * handles i18n and the opt-in localStorage persistence. */
 
-/* global I18N, DEFAULT_PARAMS, simulateScenarios, solveTargets */
+/* global I18N, DEFAULT_PARAMS, simulateScenarios, solveTargets, simulateMonteCarlo, shiftForValueAtRetirement */
 
 const STORAGE_KEY = 'retirement-calc-v1';
 const LANG_KEY = 'retirement-calc-lang';
@@ -52,6 +52,7 @@ function setFormValues(params, ui) {
   $('inflation').value = params.inflation;
   $('scenarioSpread').value = params.scenarioSpread;
   $('maxRetirementYears').value = params.maxRetirementYears;
+  $('monteCarloRuns').value = params.monteCarloRuns ?? DEFAULT_PARAMS.monteCarloRuns;
   $('displayReal').checked = !!(ui && ui.displayReal);
 
   for (const row of document.querySelectorAll('#allocationTable tbody tr')) {
@@ -60,9 +61,13 @@ function setFormValues(params, ui) {
     const defaults = DEFAULT_PARAMS.assets.find((a) => a.id === asset.id) || {};
     for (const input of row.querySelectorAll('input')) {
       const field = input.dataset.field;
-      // Fall back for inputs stored before the field existed: withdrawalShare
-      // gets its default, allocation columns mirror the contribution split.
-      const fallback = field === 'withdrawalShare' ? (defaults.withdrawalShare ?? 0) : (asset.allocation ?? 0);
+      // Fall back for inputs stored before the field existed: withdrawalShare and
+      // volatility get their per-asset defaults, allocation columns mirror the
+      // contribution split.
+      let fallback;
+      if (field === 'withdrawalShare') fallback = defaults.withdrawalShare ?? 0;
+      else if (field === 'volatility') fallback = defaults.volatility ?? 0;
+      else fallback = asset.allocation ?? 0;
       input.value = asset[field] ?? fallback;
     }
   }
@@ -105,6 +110,7 @@ function readParams() {
     kest: num($('kest'), 27.5),
     inflation: num($('inflation')),
     maxRetirementYears: Math.max(1, num($('maxRetirementYears'), 60)),
+    monteCarloRuns: Math.max(1, num($('monteCarloRuns'), 1000)),
   };
 }
 
@@ -217,6 +223,10 @@ let chart = null;
 let assetChart = null;
 let pieChart = null;
 let allocationPie = null;
+let mcChart = null;
+// Last Monte Carlo result + the params it was computed with, so nominal/real and
+// log-scale toggles can redraw it without re-running the (heavy) simulation.
+let mcCache = null;
 const ASSET_COLORS = {
   etf: { border: '#2563eb', fill: 'rgba(37,99,235,0.35)' },
   bonds: { border: '#64748b', fill: 'rgba(100,116,139,0.35)' },
@@ -519,6 +529,173 @@ function renderAllocationPie(scenarios, params, displayReal) {
   }
 }
 
+// -------------------------------------------------------------- monte carlo --
+
+// The percentiles offered in the goal-block dropdown (must exist on the band).
+const MC_GOAL_PERCENTILES = [5, 10, 25, 50, 75, 90, 95];
+
+// Runs the simulation (on demand) and draws everything that depends on it.
+function renderMonteCarlo() {
+  const params = readParams();
+  const result = simulateMonteCarlo(params, { runs: params.monteCarloRuns });
+  mcCache = { result, params };
+  $('mcResults').classList.remove('hidden');
+  refreshMonteCarlo();
+}
+
+// Redraw every part of the MC section from the cached result (chart + summary +
+// goal). Used after a run and after a language change.
+function refreshMonteCarlo() {
+  if (!mcCache) return;
+  const real = $('displayReal').checked;
+  drawMonteCarlo(mcCache.result, mcCache.params, real);
+  renderMcSummary(mcCache.result, mcCache.params, real);
+  renderMcGoal(mcCache.result, mcCache.params);
+}
+
+// Redraw a cached MC result for a display toggle (no re-simulation). The goal block
+// is independent of the nominal/real toggle, so it doesn't need redrawing.
+function redrawMcForToggle() {
+  if (!mcCache) return;
+  drawMonteCarlo(mcCache.result, mcCache.params, $('displayReal').checked);
+  renderMcSummary(mcCache.result, mcCache.params, $('displayReal').checked);
+}
+
+function drawMonteCarlo(result, params, displayReal) {
+  const infl = params.inflation;
+  const logScale = $('logScale').checked;
+  // Deflate to today's purchasing power when requested; on a log scale a 0 (a
+  // depleted run) can't be plotted, so it becomes a gap.
+  const defl = (y, year) => {
+    const v = displayReal ? y / Math.pow(1 + infl / 100, year) : y;
+    return logScale && v <= 0 ? null : v;
+  };
+  const series = (pick) => result.bands.map((b, year) => ({ x: START_YEAR + year, y: defl(pick(b), year) }));
+
+  // All runs in a single dataset, separated by null points so the lines don't
+  // join run-to-run — far cheaper than one dataset per run.
+  const spaghetti = [];
+  for (const run of result.runs) {
+    for (let year = 0; year < run.length; year++) spaghetti.push({ x: START_YEAR + year, y: defl(run[year], year) });
+    spaghetti.push({ x: START_YEAR + (run.length - 1), y: null });
+  }
+
+  // Each band = a (label-less) lower line plus an upper line that fills down to it
+  // (fill: '-1'). Nesting darker fills from 5–95 → 25–75 gives the layered look.
+  const lower = (pick) => ({ data: series(pick), borderColor: 'transparent', borderWidth: 0, pointRadius: 0, fill: false });
+  const upper = (pick, label, bg) => ({
+    label, data: series(pick), borderColor: 'transparent', borderWidth: 0,
+    backgroundColor: bg, pointRadius: 0, fill: '-1',
+  });
+
+  const datasets = [
+    { label: t('mcChartRuns'), data: spaghetti, borderColor: 'rgba(37,99,235,0.07)', borderWidth: 0.5, pointRadius: 0, fill: false, spanGaps: false },
+    lower((b) => b.p5), upper((b) => b.p95, t('mcBand5_95'), 'rgba(37,99,235,0.08)'),
+    lower((b) => b.p10), upper((b) => b.p90, t('mcBand10_90'), 'rgba(37,99,235,0.10)'),
+    lower((b) => b.p25), upper((b) => b.p75, t('mcBand25_75'), 'rgba(37,99,235,0.16)'),
+    { label: t('mcChartMedian'), data: series((b) => b.p50), borderColor: '#2563eb', borderWidth: 2, pointRadius: 0, fill: false },
+    { label: t('mcChartMean'), data: series((b) => b.mean), borderColor: '#d97706', borderWidth: 2, borderDash: [5, 4], pointRadius: 0, fill: false },
+  ];
+
+  // Linear: frame around the 95th-percentile band so the bulk of the runs own the
+  // real estate; the handful of extreme runs are allowed to run off the top (same
+  // philosophy as the main chart). Log: autoscale to fit everything.
+  const p95Peak = series((b) => b.p95).reduce((m, p) => (p.y != null && p.y > m ? p.y : m), 0);
+  const yScale = logScale
+    ? { type: 'logarithmic', ticks: { callback: (v) => fmtMoney(v) } }
+    : {
+        type: 'linear', beginAtZero: true,
+        max: p95Peak > 0 ? p95Peak * 1.1 : undefined,
+        ticks: { callback: (v) => fmtMoney(v) },
+      };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        type: 'linear',
+        title: { display: true, text: t('chartYear') },
+        ticks: { callback: (v) => Math.round(v), maxTicksLimit: 15 },
+      },
+      y: yScale,
+    },
+    plugins: {
+      retirementLine: { year: START_YEAR + params.yearsToRetirement, label: t('chartRetirement') },
+      // Show only the labelled series (the band edges and run gaps are unlabelled).
+      legend: { labels: { filter: (item) => !!item.text } },
+      tooltip: {
+        // The individual-runs dataset would spam the tooltip — only the summaries.
+        filter: (item) => !!item.dataset.label && item.dataset.label !== t('mcChartRuns'),
+        callbacks: {
+          title: (items) => `${t('chartYear')} ${Math.round(items[0].parsed.x)}`,
+          label: (item) => `${item.dataset.label}: ${fmtMoney(item.parsed.y)}`,
+        },
+      },
+    },
+  };
+
+  if (mcChart) {
+    mcChart.data.datasets = datasets;
+    mcChart.options = options;
+    mcChart.update('none');
+  } else {
+    mcChart = new Chart($('monteCarloChart'), {
+      type: 'line',
+      data: { datasets },
+      options,
+      plugins: [retirementLinePlugin],
+    });
+  }
+}
+
+function renderMcSummary(result, params, displayReal) {
+  const s = result.summary;
+  const retMonth = Math.round(params.yearsToRetirement * 12);
+  const d = (v) => fmtMoney(deflate(v, params, displayReal, retMonth));
+  const pct = `${Math.round(s.probLasts * 100)} %`;
+
+  $('mcSummary').innerHTML = [
+    card(t('mcProbLasts'), pct),
+    card(t('mcAtRetP10'), d(s.atRetirement.p10)),
+    card(t('mcAtRetP50'), d(s.atRetirement.p50)),
+    card(t('mcAtRetP90'), d(s.atRetirement.p90)),
+  ].join('');
+
+  // Best/worst run by final value, deflated at the end of the simulated horizon.
+  const endMonth = Math.round((params.yearsToRetirement + params.maxRetirementYears) * 12);
+  const fmtEnd = (v) => fmtMoney(deflate(v, params, displayReal, endMonth));
+  $('mcExtremes').innerHTML = `
+    <span>${t('mcBest')}: <strong>${fmtEnd(s.best.finalValue)}</strong></span>
+    <span>${t('mcWorst')}: <strong>${fmtEnd(s.worst.finalValue)}</strong></span>`;
+}
+
+// The percentile goal-seek: map the selected percentile's value at retirement to an
+// equivalent constant return shift, then run the existing solver at that shift (see
+// calculator.js). The percentile is chosen from a dropdown (default: 10th).
+function renderMcGoal(result, params) {
+  const sel = $('mcGoalPercentile');
+  // (Re)build the options so their labels follow the current language, preserving
+  // the current selection (default 10th — the pessimistic "bad run").
+  const selected = sel.value ? Number(sel.value) : 10;
+  sel.innerHTML = MC_GOAL_PERCENTILES.map((p) => `<option value="${p}"${p === selected ? ' selected' : ''}>${
+    t('mcGoalPercentileFmt').replace('{p}', p)}</option>`).join('');
+
+  const baseShift = shiftForValueAtRetirement(params, result.summary.atRetirement[`p${selected}`]);
+  const goal = solveTargets(params, { baseShift });
+  $('mcGoalIntro').textContent = targetIntroText(goal, params);
+  $('mcGoalTable').innerHTML = `
+    <thead><tr>
+      <th>${t('targetLever')}</th>
+      <th>${t('targetCurrent')}</th>
+      <th>${t('mcGoalNeeded')}</th>
+      <th>${t('targetChange')}</th>
+    </tr></thead>
+    <tbody>${targetRowsHtml(goal)}</tbody>`;
+}
+
 // ------------------------------------------------------------------ summary --
 
 function deflate(value, params, displayReal, atMonth) {
@@ -650,6 +827,9 @@ function targetLeverMeta() {
     { key: 'yearsToRetirement', label: t('yearsToRetirement'), fmt: (v) => `${fmtNum(v)} ${t('unitYears')}`, unit: 'years' },
     { key: 'startingAmount', label: t('startingAmount'), fmt: fmtMoney, unit: 'money' },
     { key: 'returnShift', label: t('targetLeverReturn'), fmt: (v) => `${v > 0 ? '+' : ''}${fmtNum(v)} pp`, unit: 'pp' },
+    // Stable-value goal only (the solver omits it for the fixed-amount goal): the
+    // largest sustainable monthly withdrawal. Rows whose key is absent are skipped.
+    { key: 'monthlyWithdrawal', label: t('monthlyWithdrawal'), fmt: fmtMoney, unit: 'money' },
   ];
 }
 
@@ -669,36 +849,46 @@ function updateGoalUI(params) {
   $('goalStableHint').classList.toggle('hidden', !stable);
 }
 
-function renderTarget(params) {
-  const result = solveTargets(params);
+// Intro sentence for a solveTargets() result (works for both goal modes and for
+// the Monte Carlo percentile variant, which passes a result computed at a baseShift).
+function targetIntroText(result, params) {
   if (result.goalType === 'stableValue') {
     // The bar is the value you retire on (result.current); the end-of-drawdown
     // real value (result.finalReal) must clear it for the portfolio to hold up.
     const start = fmtMoney(result.current);
     const end = fmtMoney(result.finalReal);
     const gap = fmtMoney(Math.abs(result.finalReal - result.current));
-    $('targetIntro').textContent = (result.reached ? t('goalStableReached') : t('goalStableShort'))
+    return (result.reached ? t('goalStableReached') : t('goalStableShort'))
       .replace('{start}', start).replace('{end}', end).replace('{gap}', gap)
       .replace('{years}', params.maxRetirementYears);
-  } else {
-    const projected = fmtMoney(result.current);
-    const target = fmtMoney(result.target);
-    const gap = fmtMoney(Math.abs(result.current - result.target));
-    $('targetIntro').textContent = (result.reached ? t('targetIntroReached') : t('targetIntroShort'))
-      .replace('{projected}', projected).replace('{target}', target).replace('{gap}', gap);
   }
+  const projected = fmtMoney(result.current);
+  const target = fmtMoney(result.target);
+  const gap = fmtMoney(Math.abs(result.current - result.target));
+  return (result.reached ? t('targetIntroReached') : t('targetIntroShort'))
+    .replace('{projected}', projected).replace('{target}', target).replace('{gap}', gap);
+}
 
-  const rows = targetLeverMeta().map((meta) => {
-    const lever = result.levers[meta.key];
-    const needed = lever.status === 'ok' ? meta.fmt(lever.needed) : '–';
-    return `<tr>
-      <td>${meta.label}</td>
-      <td>${meta.fmt(lever.current)}</td>
-      <td>${needed}</td>
-      <td>${targetChangeCell(meta, lever)}</td>
-    </tr>`;
-  }).join('');
+// Lever rows for a solveTargets() result. Metas whose lever the solver omitted
+// (e.g. the withdrawal ceiling on the fixed-amount goal) are skipped.
+function targetRowsHtml(result) {
+  return targetLeverMeta()
+    .filter((meta) => result.levers[meta.key])
+    .map((meta) => {
+      const lever = result.levers[meta.key];
+      const needed = lever.status === 'ok' ? meta.fmt(lever.needed) : '–';
+      return `<tr>
+        <td>${meta.label}</td>
+        <td>${meta.fmt(lever.current)}</td>
+        <td>${needed}</td>
+        <td>${targetChangeCell(meta, lever)}</td>
+      </tr>`;
+    }).join('');
+}
 
+function renderTarget(params) {
+  const result = solveTargets(params);
+  $('targetIntro').textContent = targetIntroText(result, params);
   $('targetTable').innerHTML = `
     <thead><tr>
       <th>${t('targetLever')}</th>
@@ -706,7 +896,7 @@ function renderTarget(params) {
       <th>${t('targetNeeded')}</th>
       <th>${t('targetChange')}</th>
     </tr></thead>
-    <tbody>${rows}</tbody>`;
+    <tbody>${targetRowsHtml(result)}</tbody>`;
 }
 
 // --------------------------------------------------------------------- i18n --
@@ -725,6 +915,9 @@ function setLanguage(next) {
   try { localStorage.setItem(LANG_KEY, lang); } catch { /* blocked */ }
   applyI18n();
   recalc();
+  // recalc() doesn't touch the on-demand MC section; refresh it so its dynamic
+  // labels (chart legend, cards, goal table + dropdown) follow the new language.
+  refreshMonteCarlo();
 }
 
 // --------------------------------------------------------------------- main --
@@ -776,7 +969,18 @@ function init() {
     $('importFile').value = ''; // allow re-importing the same file
   });
 
-  $('logScale').addEventListener('change', recalc);
+  // Log-scale and nominal/real toggles redraw a cached Monte Carlo result without
+  // re-running it (the sim only runs on the explicit button click).
+  $('logScale').addEventListener('change', () => {
+    recalc();
+    redrawMcForToggle();
+  });
+  $('displayReal').addEventListener('change', redrawMcForToggle);
+  $('runMonteCarlo').addEventListener('click', renderMonteCarlo);
+  // Switching the goal-block percentile re-solves from the cached result (no re-run).
+  $('mcGoalPercentile').addEventListener('change', () => {
+    if (mcCache) renderMcGoal(mcCache.result, mcCache.params);
+  });
 
   $('langToggle').addEventListener('click', () => setLanguage(lang === 'de' ? 'en' : 'de'));
 }

@@ -33,6 +33,15 @@ files, ready for GitHub Pages.
 - Composition pie uses the paid-in capital: pre-existing gains in the starting
   amount count as growth, not as paid-in money
 - Min / average / max return scenarios (configurable ± spread) shown as a band
+- **Monte Carlo volatility simulation** (on-demand): a per-asset annual return
+  volatility drives a configurable number of runs (default 1000) with random
+  monthly returns (lognormal, so factors stay positive and outcomes are
+  realistically right-skewed), drawn as a spaghetti chart with nested 5/95, 10/90
+  and 25/75 percentile bands plus mean and median lines. Reports the probability
+  the money lasts, p10/p50/p90 of the value at retirement, and the best/worst run.
+  A separate compact goal-seek block answers "how far would each lever (incl. the
+  sustainable withdrawal) have to move to still hit the goal on a given run?" — the
+  run is selectable by percentile (5th…95th) from a dropdown.
 - Nominal vs. real (today's purchasing power) display toggle
 - German / English language toggle
 - Second chart with the portfolio value stacked by asset class over time
@@ -94,8 +103,14 @@ by the coverage gate or the type-checker, so neither includes it.
 ## Configurable model parameters
 
 Everything is editable on the page: KESt rate (default 27.5 %), inflation,
-per-asset returns / dividend yields / TER, scenario spread, simulated
-retirement duration.
+per-asset returns / dividend yields / TER / volatility, scenario spread, number
+of Monte Carlo runs, simulated retirement duration.
+
+Default per-asset volatilities (annual standard deviation of returns) are ETFs
+15 %, bonds 5 %, stocks 20 %, dividend stocks 14 % — roughly historical
+annualized figures, all editable. `volatility` and `monteCarloRuns` were added
+non-breakingly (defaults in `withDefaults()` and `setFormValues()`), so existing
+saved/exported files keep loading and the storage version stays `1`.
 
 ## Updating Chart.js
 
@@ -135,9 +150,17 @@ versioned shape:
 
 - [ ] *Ausschüttungsgleiche Erträge*: annual taxation of accumulating ETFs with
       cost-basis step-up (the big missing piece of the Austrian tax model)
-- [ ] Monte Carlo volatility simulation: configurable volatility % and number of
-      runs, percentile bands, probability the money lasts. The single-run
-      simulation core is already shaped to accept a per-month return sequence.
+- [x] Monte Carlo volatility simulation: configurable volatility % and number of
+      runs, percentile bands, probability the money lasts. `simulate()` takes an
+      optional `{ rng }` so each month's per-asset growth factor is drawn from a
+      lognormal (mean-preserving: `E[return]` matches the entered rate while the
+      median path shows realistic volatility drag); `simulateMonteCarlo()`
+      aggregates the runs into percentile bands. The percentile goal-seek reuses
+      the deterministic solver via an *equivalent return shift* (the constant shift
+      that reproduces a percentile's value at retirement) — an approximation
+      calibrated at the current inputs, labeled as such in the UI, rather than
+      re-running the Monte Carlo inside every bisection step (which would be far too
+      slow in the browser).
 - [ ] Rebalancing mechanics at retirement: periodically sell/buy to restore a
       target allocation once drawdown starts (note: rebalancing realizes gains,
       so it triggers KESt — the model would need to account for that), and/or a

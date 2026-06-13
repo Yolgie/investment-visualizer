@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const {
   DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios,
-  realValueAtRetirement, realFinalValue, solveTargets,
+  mulberry32, gaussian, percentile, simulateMonteCarlo,
+  realValueAtRetirement, realFinalValue, shiftForValueAtRetirement, solveTargets,
 } = require('./calculator.js');
 const { I18N } = require('./i18n.js');
 
@@ -680,6 +681,143 @@ const base = {
   check(`property fuzz: ${ITER} random runs hold all invariants (seed ${SEED.toString(16)})`,
     violations === 0,
     firstBad ? `${violations} violations; first @${firstBad.i}: ${firstBad.why} — ${JSON.stringify(firstBad.p)}` : '');
+}
+
+// --- Monte Carlo -------------------------------------------------------------
+
+// mulberry32 is deterministic for a given seed and produces floats in [0, 1).
+{
+  const a = mulberry32(42);
+  const b = mulberry32(42);
+  const c = mulberry32(43);
+  const xs = Array.from({ length: 5 }, () => a());
+  const ys = Array.from({ length: 5 }, () => b());
+  check('mulberry32: same seed -> same sequence', xs.every((v, i) => v === ys[i]));
+  check('mulberry32: different seed -> different sequence', xs.some((v, i) => v !== [c(), c(), c(), c(), c()][i]));
+  check('mulberry32: outputs in [0,1)', xs.every((v) => v >= 0 && v < 1));
+}
+
+// gaussian draws average to ~0 with stdev ~1 over many samples.
+{
+  const rng = mulberry32(7);
+  const n = 20000;
+  let sum = 0;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) { const g = gaussian(rng); sum += g; sumSq += g * g; }
+  const mean = sum / n;
+  const std = Math.sqrt(sumSq / n - mean * mean);
+  check('gaussian: mean ~ 0', Math.abs(mean) < 0.05, `mean=${mean}`);
+  check('gaussian: stdev ~ 1', Math.abs(std - 1) < 0.05, `std=${std}`);
+}
+
+// percentile: endpoints, interpolation, and integer ranks.
+{
+  const xs = [10, 20, 30, 40, 50];
+  check('percentile: p0 = min', percentile(xs, 0) === 10);
+  check('percentile: p100 = max', percentile(xs, 100) === 50);
+  check('percentile: p50 = median', percentile(xs, 50) === 30);
+  check('percentile: interpolates between ranks', approx(percentile(xs, 25), 20));
+  check('percentile: single element', percentile([42], 90) === 42);
+}
+
+// With volatility 0 the Monte Carlo path equals the deterministic simulation.
+{
+  const p = { ...base, assets: singleAsset({ annualReturn: 5, volatility: 0 }), maxRetirementYears: 5 };
+  const det = simulate(p);
+  const mc = simulate(p, 0, { rng: mulberry32(1) });
+  check('rng with zero volatility == deterministic',
+    approx(det.summary.atRetirement.value, mc.summary.atRetirement.value, 1e-9));
+}
+
+// Averaging many random runs converges back toward the deterministic value.
+{
+  const p = { ...base, assets: singleAsset({ annualReturn: 5, volatility: 15 }), maxRetirementYears: 5 };
+  const det = simulate(p).summary.atRetirement.value;
+  const rng = mulberry32(99);
+  let total = 0;
+  const runs = 400;
+  for (let i = 0; i < runs; i++) total += simulate(p, 0, { rng }).summary.atRetirement.value;
+  const avg = total / runs;
+  // The lognormal draw is mean-preserving (E[return] = deterministic), but the
+  // outcome distribution is heavily right-skewed, so the sample mean is noisy — a
+  // wide band is expected even though there is no systematic bias.
+  check('rng mean over many runs ~ deterministic', Math.abs(avg / det - 1) < 0.15, `avg/det=${avg / det}`);
+}
+
+// simulateMonteCarlo: shape, run count, ordered bands, probability in range.
+{
+  const p = { ...base, assets: singleAsset({ annualReturn: 6, volatility: 18 }), maxRetirementYears: 10 };
+  const mc = simulateMonteCarlo(p, { runs: 200, seed: 5 });
+  check('mc: run count honoured', mc.runs.length === 200 && mc.summary.runs === 200);
+  const expectYears = Math.floor((base.yearsToRetirement * 12 + 10 * 12) / 12) + 1;
+  check('mc: trajectory length = horizon in years', mc.runs[0].length === expectYears);
+  check('mc: one band per year', mc.bands.length === expectYears);
+  const ordered = mc.bands.every((b) => b.p5 <= b.p10 && b.p10 <= b.p25 && b.p25 <= b.p50
+    && b.p50 <= b.p75 && b.p75 <= b.p90 && b.p90 <= b.p95);
+  check('mc: percentile bands are ordered p5..p95', ordered);
+  check('mc: probLasts in [0,1]', mc.summary.probLasts >= 0 && mc.summary.probLasts <= 1);
+  check('mc: atRetirement p10 <= p50 <= p90',
+    mc.summary.atRetirement.p10 <= mc.summary.atRetirement.p50
+    && mc.summary.atRetirement.p50 <= mc.summary.atRetirement.p90);
+  // Lognormal compounding is right-skewed, so the median lands below the mean.
+  check('mc: median value at retirement below the mean (volatility drag)',
+    mc.summary.atRetirement.p50 < mc.summary.atRetirement.mean);
+  check('mc: best final value >= worst', mc.summary.best.finalValue >= mc.summary.worst.finalValue);
+  check('mc: best/worst carry a trajectory', mc.summary.best.trajectory.length === expectYears
+    && mc.summary.worst.trajectory.length === expectYears);
+  check('mc: reproducible for a fixed seed',
+    simulateMonteCarlo(p, { runs: 50, seed: 5 }).summary.atRetirement.p50
+    === simulateMonteCarlo(p, { runs: 50, seed: 5 }).summary.atRetirement.p50);
+  // Default seed path + runs falling back to params.monteCarloRuns.
+  const mcDefault = simulateMonteCarlo({ ...p, monteCarloRuns: 10 });
+  check('mc: runs default to params.monteCarloRuns', mcDefault.runs.length === 10);
+}
+
+// A high-withdrawal / low-return portfolio depletes in some runs: probLasts < 1 and
+// at least one run is fully drawn down (final value 0), exercising the tail-fill.
+{
+  const p = {
+    ...base,
+    assets: singleAsset({ annualReturn: 1, volatility: 25 }),
+    monthlyWithdrawal: 5000, withdrawalInflationAdjusted: false, maxRetirementYears: 30,
+  };
+  const mc = simulateMonteCarlo(p, { runs: 150, seed: 3 });
+  check('mc: depleting portfolio has probLasts < 1', mc.summary.probLasts < 1);
+  check('mc: worst run is fully depleted', mc.summary.worst.finalValue === 0);
+}
+
+// shiftForValueAtRetirement recovers the shift that reproduces a target value.
+{
+  const p = { ...base, assets: singleAsset({ annualReturn: 5, volatility: 0 }), maxRetirementYears: 5 };
+  const targetAtPlus2 = simulate(p, 2).summary.atRetirement.value;
+  const shift = shiftForValueAtRetirement(p, targetAtPlus2);
+  check('shiftForValueAtRetirement: recovers a known shift', approx(shift, 2, 1e-3), `shift=${shift}`);
+  check('shiftForValueAtRetirement: clamps below floor', shiftForValueAtRetirement(p, -1) === -100);
+  check('shiftForValueAtRetirement: clamps when unreachable', shiftForValueAtRetirement(p, 1e15) === 100);
+}
+
+// solveTargets with a baseShift shifts the whole world down: the projection drops and
+// the levers must work harder than at baseShift 0.
+{
+  const p = { ...base, assets: singleAsset({ annualReturn: 6, volatility: 0 }), goalType: 'amount', targetAmount: 500000 };
+  const atZero = solveTargets(p);
+  const atDown = solveTargets(p, { baseShift: -3 });
+  check('solveTargets baseShift: lowers the projection', atDown.current < atZero.current);
+  const needMoreContrib = atDown.levers.monthlyContribution.needed > atZero.levers.monthlyContribution.needed;
+  check('solveTargets baseShift: contribution lever needs more', needMoreContrib);
+}
+
+// The stable-value goal exposes a monthlyWithdrawal ceiling lever; the amount goal does not.
+{
+  const stableP = { ...base, goalType: 'stableValue', monthlyWithdrawal: 2000,
+    assets: singleAsset({ annualReturn: 6, volatility: 0 }), maxRetirementYears: 30 };
+  const stable = solveTargets(stableP);
+  check('solveTargets: stable goal exposes withdrawal lever', !!stable.levers.monthlyWithdrawal);
+  check('solveTargets: withdrawal lever solves to a value',
+    stable.levers.monthlyWithdrawal.status === 'ok'
+    && Number.isFinite(stable.levers.monthlyWithdrawal.needed));
+  const amount = solveTargets({ ...stableP, goalType: 'amount' });
+  check('solveTargets: amount goal omits withdrawal lever', amount.levers.monthlyWithdrawal === undefined);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

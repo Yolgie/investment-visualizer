@@ -45,8 +45,16 @@ try {
 
     expect('page title is set', (await page.title()).length > 0);
 
+    // The Monte Carlo chart only renders on demand — keep the run count small and
+    // click the button so its canvas is populated for the check below. The runs
+    // input lives in the collapsed parameters <details>, so open it first.
+    await page.evaluate(() => { document.getElementById('parametersSection').open = true; });
+    await page.fill('#monteCarloRuns', '50');
+    await page.click('#runMonteCarlo');
+    await page.waitForFunction(() => window.Chart && window.Chart.getChart(document.getElementById('monteCarloChart')));
+
     const canvases = await page.evaluate(() => {
-      const ids = ['chart', 'assetChart', 'pieChart', 'allocationPie'];
+      const ids = ['chart', 'assetChart', 'pieChart', 'allocationPie', 'monteCarloChart'];
       if (!window.Chart) return null;
       return ids.map((id) => {
         const c = document.getElementById(id);
@@ -55,6 +63,9 @@ try {
     });
     expect('window.Chart is available', canvases !== null);
     for (const c of canvases || []) expect(`chart "${c.id}" rendered`, c.ok);
+
+    expect('monte carlo summary cards present', (await page.locator('#mcSummary .card').count()) > 0);
+    expect('monte carlo goal table populated', (await page.locator('#mcGoalTable tbody tr').count()) > 0);
 
     expect('summary cards present', (await page.locator('#summary .card').count()) > 0);
     expect('target table populated', (await page.locator('#targetTable tbody tr').count()) > 0);
