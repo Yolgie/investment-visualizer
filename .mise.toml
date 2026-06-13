@@ -12,3 +12,11 @@ description = "Run eslint"
 [tasks.serve]
 run = "python3 -m http.server 8000"
 description = "Serve the site locally on http://localhost:8000"
+
+[tasks.verify]
+description = "Headless-browser smoke test (installs Playwright + Chromium on first run)"
+run = """
+node -e "require.resolve('playwright')" 2>/dev/null || npm install --no-save playwright@1.60.0
+npx --yes playwright@1.60.0 install chromium
+node test/smoke.js
+"""

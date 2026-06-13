@@ -26,7 +26,7 @@ module.exports = [
     },
   },
   {
-    files: ['test.js', 'eslint.config.js'],
+    files: ['test.js', 'test/**/*.js', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',
@@ -35,6 +35,11 @@ module.exports = [
         module: 'writable',
         process: 'readonly',
         console: 'readonly',
+        __dirname: 'readonly',
+        setTimeout: 'readonly',
+        // referenced inside Playwright page.evaluate() callbacks (run in-browser)
+        window: 'readonly',
+        document: 'readonly',
       },
     },
   },
