@@ -279,6 +279,32 @@ const scenarios = [
     await page.waitForFunction(() => document.getElementById('displayReal').checked === true);
     expect('view: import restores displayReal', await page.isChecked('#displayReal'));
   },
+
+  // 14. Stable-value goal: switching modes hides the amount input, shows the
+  //     stable hint, and reframes the intro around real-value erosion/preservation.
+  async ({ page }, expect) => {
+    expect('stable: amount input visible in amount mode', await page.isVisible('#targetAmountRow'));
+    expect('stable: stable hint hidden in amount mode', !(await page.isVisible('#goalStableHint')));
+
+    await page.selectOption('#goalType', 'stableValue');
+    expect('stable: amount input hidden in stable mode', !(await page.isVisible('#targetAmountRow')));
+    expect('stable: stable hint shown in stable mode', await page.isVisible('#goalStableHint'));
+
+    // Defaults (modest pot, €2000/mo) erode the real value over the drawdown.
+    const intro = await page.locator('#targetIntro').textContent();
+    expect('stable: intro reframed around real value', intro.includes('Real value'), intro);
+    expect('stable: intro mentions the drawdown horizon', intro.includes('drawdown'), intro);
+    const contribRow = page.locator('#targetTable tbody tr').first();
+    expect('stable: a lever shows an upward change',
+      (await contribRow.locator('td').last().textContent()).includes('↑'));
+
+    // A huge pot with a tiny withdrawal already holds its value.
+    await page.fill('#startingAmount', '5000000');
+    await page.fill('#startingCostBasis', '5000000');
+    await page.fill('#monthlyWithdrawal', '500');
+    const reached = await page.locator('#targetIntro').textContent();
+    expect('stable: rich setup holds its real value', reached.includes('Real value holds up'), reached);
+  },
 ];
 
 // -------------------------------------------------------------------- runner --

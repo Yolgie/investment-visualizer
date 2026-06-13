@@ -41,6 +41,7 @@ function setFormValues(params, ui) {
   $('contributionIncreaseValue').value = params.contributionIncrease.value;
   $('contributionIncreaseUnit').value = params.contributionIncrease.unit;
   $('yearsToRetirement').value = params.yearsToRetirement;
+  $('goalType').value = params.goalType || 'amount';
   $('targetAmount').value = params.targetAmount;
   $('allocationSwitchEnabled').checked = params.allocationSwitch.enabled;
   $('allocationSwitchYear').value = params.allocationSwitch.year;
@@ -90,6 +91,7 @@ function readParams() {
       unit: $('contributionIncreaseUnit').value,
     },
     yearsToRetirement: Math.max(1, num($('yearsToRetirement'), 30)),
+    goalType: $('goalType').value,
     targetAmount: Math.max(0, num($('targetAmount'), 1000000)),
     assets,
     allocationSwitch: {
@@ -660,13 +662,31 @@ function targetChangeCell(meta, lever) {
   return `${arrow} ${meta.fmt(Math.abs(delta))}`;
 }
 
+// Shows/hides the goal inputs that only apply to one mode.
+function updateGoalUI(params) {
+  const stable = params.goalType === 'stableValue';
+  $('targetAmountRow').classList.toggle('hidden', stable);
+  $('goalStableHint').classList.toggle('hidden', !stable);
+}
+
 function renderTarget(params) {
   const result = solveTargets(params);
-  const projected = fmtMoney(result.current);
-  const target = fmtMoney(result.target);
-  const gap = fmtMoney(Math.abs(result.current - result.target));
-  $('targetIntro').textContent = (result.reached ? t('targetIntroReached') : t('targetIntroShort'))
-    .replace('{projected}', projected).replace('{target}', target).replace('{gap}', gap);
+  if (result.goalType === 'stableValue') {
+    // The bar is the value you retire on (result.current); the end-of-drawdown
+    // real value (result.finalReal) must clear it for the portfolio to hold up.
+    const start = fmtMoney(result.current);
+    const end = fmtMoney(result.finalReal);
+    const gap = fmtMoney(Math.abs(result.finalReal - result.current));
+    $('targetIntro').textContent = (result.reached ? t('goalStableReached') : t('goalStableShort'))
+      .replace('{start}', start).replace('{end}', end).replace('{gap}', gap)
+      .replace('{years}', params.maxRetirementYears);
+  } else {
+    const projected = fmtMoney(result.current);
+    const target = fmtMoney(result.target);
+    const gap = fmtMoney(Math.abs(result.current - result.target));
+    $('targetIntro').textContent = (result.reached ? t('targetIntroReached') : t('targetIntroShort'))
+      .replace('{projected}', projected).replace('{target}', target).replace('{gap}', gap);
+  }
 
   const rows = targetLeverMeta().map((meta) => {
     const lever = result.levers[meta.key];
@@ -713,6 +733,7 @@ function recalc() {
   const params = readParams();
   const displayReal = $('displayReal').checked;
   updateAllocationUI(params);
+  updateGoalUI(params);
   const scenarios = simulateScenarios(params);
   renderChart(scenarios, params, displayReal);
   renderAssetChart(scenarios, params, displayReal);
