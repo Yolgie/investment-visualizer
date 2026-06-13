@@ -1,6 +1,8 @@
 /* Unit tests for calculator.js — run with `node test.js`. */
 
-const { simulate, simulateScenarios } = require('./calculator.js');
+const {
+  simulate, simulateScenarios, realValueAtRetirement, solveTargets,
+} = require('./calculator.js');
 
 let passed = 0;
 let failed = 0;
@@ -364,6 +366,52 @@ const base = {
     yearsToRetirement: 0, monthlyWithdrawal: 1000,
   });
   check('keepsGrowing false on depletion', simulate(p).summary.keepsGrowing === false);
+}
+
+// 24. solveTargets round-trip: each solved lever lands back on the (real) target.
+{
+  const p = Object.assign({}, base, {
+    startingAmount: 10000, startingCostBasis: 10000, monthlyContribution: 500,
+    yearsToRetirement: 30, inflation: 2, assets: singleAsset({ annualReturn: 6 }),
+    targetAmount: 700000,
+  });
+  const sol = solveTargets(p);
+  const apply = {
+    monthlyContribution: (x) => ({ ...p, monthlyContribution: x }),
+    contributionIncrease: (x) => ({ ...p, contributionIncrease: { value: x, unit: 'percent' } }),
+    yearsToRetirement: (x) => ({ ...p, yearsToRetirement: x }),
+    startingAmount: (x) => ({ ...p, startingAmount: x }),
+  };
+  for (const key of Object.keys(apply)) {
+    const lever = sol.levers[key];
+    check(`solve ${key}: status ok`, lever.status === 'ok', lever.status);
+    const got = realValueAtRetirement(apply[key](lever.needed));
+    // The years lever lands on a whole-month boundary, so allow a looser tolerance.
+    const eps = key === 'yearsToRetirement' ? 2e-2 : 1e-4;
+    check(`solve ${key}: hits target`, approx(got, p.targetAmount, eps), `${got} != ${p.targetAmount}`);
+  }
+  // returnShift maps to the scenario shift, not a params field.
+  const rs = sol.levers.returnShift;
+  check('solve returnShift: status ok', rs.status === 'ok', rs.status);
+  const gotRs = realValueAtRetirement(p, rs.needed);
+  check('solve returnShift: hits target', approx(gotRs, p.targetAmount, 1e-4), `${gotRs} != ${p.targetAmount}`);
+}
+
+// 25. Target statuses: an already-surpassed target floors out, an absurd one is unreachable.
+{
+  const p = Object.assign({}, base, {
+    monthlyContribution: 500, yearsToRetirement: 30, inflation: 2,
+    assets: singleAsset({ annualReturn: 6 }),
+  });
+  const tiny = solveTargets({ ...p, targetAmount: 1 });
+  check('tiny target: reached flag set', tiny.reached === true);
+  check('tiny target: monthly contribution belowFloor',
+    tiny.levers.monthlyContribution.status === 'belowFloor', tiny.levers.monthlyContribution.status);
+
+  const huge = solveTargets({ ...p, targetAmount: 1e15 });
+  check('huge target: not reached', huge.reached === false);
+  check('huge target: return shift unreachable',
+    huge.levers.returnShift.status === 'unreachable', huge.levers.returnShift.status);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

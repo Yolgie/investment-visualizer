@@ -47,6 +47,10 @@ const DEFAULT_PARAMS = {
 
   // Drawdown simulation cap.
   maxRetirementYears: 60,
+
+  // Goal: desired value at retirement, expressed in today's purchasing power.
+  // The target block solves how each lever would have to change to reach it.
+  targetAmount: 1000000,
 };
 
 function withDefaults(partial) {
@@ -343,6 +347,97 @@ function simulateScenarios(rawParams) {
   };
 }
 
+// --- Target goal-seek --------------------------------------------------------
+
+/**
+ * Value at retirement (avg scenario) deflated to today's purchasing power.
+ * `shift` is the return-rate lever: percentage points added to every asset.
+ * The deflator uses p.yearsToRetirement, so it self-adjusts when the
+ * years-to-retirement lever moves p.
+ */
+function realValueAtRetirement(p, shift = 0) {
+  const v = simulate(p, shift).summary.atRetirement.value;
+  return v / Math.pow(1 + p.inflation / 100, p.yearsToRetirement);
+}
+
+/**
+ * Solve f(x) === 0 for a monotonically increasing f by bisection.
+ * Returns { value } on success, or { status } when the target isn't bracketed
+ * in the searchable range:
+ *   'belowFloor'  – even the lowest x overshoots (would need to go lower than lo)
+ *   'unreachable' – even the highest x falls short (target out of range)
+ * `expandHi` (optional) doubles hi until f(hi) >= 0 or the cap is hit.
+ */
+function bisect(f, lo, hi, { expandHi = false, cap = 1e9, iterations = 100 } = {}) {
+  if (f(lo) > 0) return { status: 'belowFloor' };
+  if (expandHi) {
+    while (f(hi) < 0 && hi < cap) hi *= 2;
+  }
+  if (f(hi) < 0) return { status: 'unreachable' };
+  for (let i = 0; i < iterations; i++) {
+    const mid = (lo + hi) / 2;
+    if (f(mid) < 0) lo = mid;
+    else hi = mid;
+  }
+  return { value: (lo + hi) / 2 };
+}
+
+/**
+ * For each lever (held independently, all else fixed), find the value it would
+ * need to reach `params.targetAmount` (real, today's purchasing power) at
+ * retirement in the avg scenario. Each lever's value-at-retirement is
+ * monotonically increasing in that lever, so bisection converges.
+ *
+ * Note: with a non-positive real return the years lever can be non-monotonic;
+ * the belowFloor/unreachable statuses cover any non-bracketed case gracefully.
+ */
+function solveTargets(rawParams) {
+  const params = withDefaults(rawParams);
+  const target = params.targetAmount;
+  const current = realValueAtRetirement(params);
+
+  // Each lever: a search range and how it maps x -> real value at retirement.
+  const specs = {
+    monthlyContribution: {
+      current: params.monthlyContribution, lo: 0, hi: 1e5, expandHi: true,
+      value: (x) => realValueAtRetirement({ ...params, monthlyContribution: x }),
+    },
+    contributionIncrease: {
+      current: params.contributionIncrease.value, lo: -50, hi: 100,
+      value: (x) => realValueAtRetirement({
+        ...params, contributionIncrease: { value: x, unit: 'percent' },
+      }),
+    },
+    yearsToRetirement: {
+      current: params.yearsToRetirement, lo: 0, hi: 80,
+      value: (x) => realValueAtRetirement({ ...params, yearsToRetirement: x }),
+    },
+    startingAmount: {
+      current: params.startingAmount, lo: 0, hi: 1e6, expandHi: true,
+      value: (x) => realValueAtRetirement({ ...params, startingAmount: x }),
+    },
+    returnShift: {
+      current: 0, lo: -20, hi: 50,
+      value: (x) => realValueAtRetirement(params, x),
+    },
+  };
+
+  const levers = {};
+  for (const [key, spec] of Object.entries(specs)) {
+    const res = bisect((x) => spec.value(x) - target, spec.lo, spec.hi, { expandHi: spec.expandHi });
+    levers[key] = {
+      current: spec.current,
+      needed: res.value ?? null,
+      status: res.value != null ? 'ok' : res.status,
+    };
+  }
+
+  return { target, current, reached: current >= target, levers };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios };
+  module.exports = {
+    DEFAULT_PARAMS, withDefaults, simulate, simulateScenarios,
+    realValueAtRetirement, solveTargets,
+  };
 }
