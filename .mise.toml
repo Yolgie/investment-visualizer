@@ -18,5 +18,7 @@ description = "Headless-browser smoke test (installs Playwright + Chromium on fi
 run = """
 node -e "require.resolve('playwright')" 2>/dev/null || npm install --no-save playwright@1.60.0
 npx --yes playwright@1.60.0 install chromium
+# Chromium needs system libs (libglib-2.0, etc.) that aren't in the base sandbox.
+npx --yes playwright@1.60.0 install-deps chromium || sudo npx --yes playwright@1.60.0 install-deps chromium
 node test/smoke.js
 """
