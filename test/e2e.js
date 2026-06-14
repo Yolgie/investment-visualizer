@@ -334,11 +334,17 @@ const scenarios = [
     await page.click('#runMonteCarlo');
     await page.waitForFunction(() => window.Chart && !!window.Chart.getChart(document.getElementById('monteCarloChart')));
     expect('mc: results shown after running', await page.locator('#mcResults').isVisible());
-    expect('mc: two overall probability cards', (await page.locator('#mcSummary .card').count()) === 2);
+    // Four overall cards: money-lasts, avg-projection, and paid-in recovery
+    // (raw + purchasing-power adjusted).
+    expect('mc: four overall probability cards', (await page.locator('#mcSummary .card').count()) === 4);
     const prob = await page.locator('#mcSummary .card').first().locator('.value').textContent();
     expect('mc: probability rendered as a percentage', /%/.test(prob), prob);
     const probStd = await page.locator('#mcSummary .card').nth(1).locator('.value').textContent();
     expect('mc: standard-projection probability rendered as a percentage', /%/.test(probStd), probStd);
+    const probPaidIn = await page.locator('#mcSummary .card').nth(2).locator('.value').textContent();
+    expect('mc: paid-in probability rendered as a percentage', /%/.test(probPaidIn), probPaidIn);
+    const probPaidInReal = await page.locator('#mcSummary .card').nth(3).locator('.value').textContent();
+    expect('mc: real paid-in probability rendered as a percentage', /%/.test(probPaidInReal), probPaidInReal);
 
     // One full card per percentile (5/10/25/50/75/90/95), each with several metric rows.
     expect('mc: seven percentile cards', (await page.locator('#mcPercentileCards .card').count()) === 7);

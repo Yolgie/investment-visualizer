@@ -328,13 +328,26 @@ function renderChart(scenarios, params, displayReal) {
   const totalMin = toSeries(min.months, infl, displayReal, (m) => m.value);
   const totalMax = toSeries(max.months, infl, displayReal, (m) => m.value);
 
+  // A depleted scenario's records stop at the run-out month; keep its line on the
+  // chart by holding it flat at zero through the rest of the drawdown horizon
+  // (otherwise the min line just vanishes when the money runs out).
+  const endMonth = Math.round(params.yearsToRetirement * 12) + Math.round(params.maxRetirementYears * 12);
+  const padToZero = (series) => {
+    if (series.length === 0) return series;
+    const lastMonth = Math.round((series[series.length - 1].x - START_YEAR) * 12);
+    for (let m = lastMonth + 1; m <= endMonth; m++) series.push({ x: START_YEAR + m / 12, y: 0 });
+    return series;
+  };
+  padToZero(totalMin);
+  padToZero(totalMax);
+
   const datasets = [
     {
-      label: t('chartBand'), data: totalMin, borderColor: 'rgba(37,99,235,0.35)',
+      label: t('chartScenarioMin'), data: totalMin, borderColor: 'rgba(37,99,235,0.35)',
       borderWidth: 1, borderDash: [4, 3], pointRadius: 0, fill: false, order: 4,
     },
     {
-      label: t('chartBand'), data: totalMax, borderColor: 'rgba(37,99,235,0.35)',
+      label: t('chartScenarioMax'), data: totalMax, borderColor: 'rgba(37,99,235,0.35)',
       backgroundColor: 'rgba(37,99,235,0.07)', borderWidth: 1, borderDash: [4, 3],
       pointRadius: 0, fill: '-1', order: 3,
     },
@@ -382,12 +395,6 @@ function renderChart(scenarios, params, displayReal) {
     },
     plugins: {
       retirementLine: { year: retirementYear, label: t('chartRetirement') },
-      legend: {
-        labels: {
-          // The min line duplicates the band's legend entry — show only one.
-          filter: (item) => item.datasetIndex !== 0,
-        },
-      },
       tooltip: {
         callbacks: {
           title: (items) => `${t('chartYear')} ${Math.round(items[0].parsed.x)}`,
@@ -737,10 +744,16 @@ function renderMcSummary(result, params, displayReal) {
   const dRet = (v) => fmtMoney(deflate(v, params, displayReal, retMonth));
   const dEnd = (v) => fmtMoney(deflate(v, params, displayReal, endMonth));
 
-  // Overall odds: that the money lasts, and that the standard ("avg") projection is hit.
+  // Overall odds: that the money lasts, that the standard ("avg") projection is hit,
+  // and that the pot at retirement at least matches what was paid in — raw and in
+  // today's purchasing power (contributions carried forward at inflation).
   $('mcSummary').innerHTML = [
     card(t('mcProbLasts'), `${Math.round(s.probLasts * 100)} %`),
     card(t('mcProbStandard'), `${Math.round(s.standard.probAtLeast * 100)} %`),
+    card(t('mcProbPaidIn'), `${Math.round(s.paidIn.probNominal * 100)} %`, null,
+      t('mcPaidInNote').replace('{amount}', fmtMoney(s.paidIn.nominal))),
+    card(t('mcProbPaidInReal'), `${Math.round(s.paidIn.probReal * 100)} %`, null,
+      t('mcPaidInRealNote').replace('{amount}', fmtMoney(s.paidIn.real))),
   ].join('');
 
   // One full card per percentile (each from a single representative run).

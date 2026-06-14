@@ -85,6 +85,7 @@
  * @property {number} accumulationMonths
  * @property {{ value: number, basis: number, netIfSold: number, perAsset: AssetResult[] }} atRetirement
  * @property {number} totalContributions
+ * @property {number} paidInInflated  total contributions carried forward to retirement at the inflation rate
  * @property {number} totalGrowth
  * @property {{ gross: number, net: number, paidOut: number }} dividends
  * @property {number} dividendsPerYearAtRetirement
@@ -121,6 +122,9 @@
  * @property {{ value: number, probAtLeast: number }} standard  the deterministic ("avg") value at
  *   retirement and the share of runs that reach at least it — below 50 % because the
  *   compounded outcome distribution is right-skewed (the mean sits above the median)
+ * @property {{ nominal: number, real: number, probNominal: number, probReal: number }} paidIn
+ *   total paid in (nominal) and its inflation-preserving value at retirement (real), with the
+ *   share of runs whose pot at retirement reaches at least each threshold
  * @property {PercentileScenario[]} percentiles       one representative run per percentile
  * @property {ExtremeRun} best                        run with the highest final value
  * @property {ExtremeRun} worst                       run with the lowest final value
@@ -344,6 +348,10 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
   /** @type {MonthRecord[]} */
   const months = [];
   let totalContributions = params.startingAmount;
+  // Same contributions, each carried forward to retirement at the inflation rate, so
+  // we can ask "did the pot at least preserve the purchasing power of what I paid in?".
+  // (Seeded once accumulationMonths is known, below.)
+  let paidInInflated;
   let dividendsGross = 0;
   let dividendsNet = 0;
   let dividendsPaidOut = 0;
@@ -429,6 +437,10 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
 
   // --- Accumulation phase ---------------------------------------------------
   const accumulationMonths = Math.round(params.yearsToRetirement * 12);
+  const inflate = (/** @type {number} */ monthsToRet) =>
+    Math.pow(1 + params.inflation / 100, monthsToRet / 12);
+  // The starting amount sits at t=0, so it has the full horizon to inflate.
+  paidInInflated = params.startingAmount * inflate(accumulationMonths);
   let contribution = params.monthlyContribution;
 
   record(0, 'accumulation');
@@ -445,6 +457,7 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
       b.basis += contribution * weights[i];
     });
     totalContributions += contribution;
+    paidInInflated += contribution * inflate(accumulationMonths - (m + 1));
 
     const { net } = payDividends();
     if (params.reinvestDividends) reinvest(net);
@@ -583,6 +596,7 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
       accumulationMonths,
       atRetirement,
       totalContributions,
+      paidInInflated,
       totalGrowth: valueAtRetirement - totalContributions,
       dividends: { gross: dividendsGross, net: dividendsNet, paidOut: dividendsPaidOut },
       dividendsPerYearAtRetirement,
@@ -709,8 +723,19 @@ function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
 
   // How likely the deterministic ("avg") projection actually is: the share of runs
   // that reach at least its value at retirement.
-  const standardValue = simulate(params, 0).summary.atRetirement.value;
+  const std = simulate(params, 0).summary;
+  const standardValue = std.atRetirement.value;
   const probAtLeast = atRet.filter((v) => v >= standardValue).length / n;
+
+  // How likely the pot at retirement at least matches what was paid in — nominally
+  // (raw euros) and in purchasing power (contributions carried forward at inflation).
+  // Contributions are deterministic, so both thresholds are the same across runs.
+  const paidIn = {
+    nominal: std.totalContributions,
+    real: std.paidInInflated,
+    probNominal: atRet.filter((v) => v >= std.totalContributions).length / n,
+    probReal: atRet.filter((v) => v >= std.paidInInflated).length / n,
+  };
 
   // One representative run per percentile, ranked by value at retirement, so every
   // figure on a card comes from a single coherent scenario.
@@ -727,6 +752,7 @@ function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
       probLasts: lasted / n,
       atRetirement: bandOf(atRet.slice().sort((a, b) => a - b)),
       standard: { value: standardValue, probAtLeast },
+      paidIn,
       percentiles,
       best: /** @type {ExtremeRun} */ (best),
       worst: /** @type {ExtremeRun} */ (worst),
