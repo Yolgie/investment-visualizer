@@ -762,6 +762,23 @@ const base = {
   // Lognormal compounding is right-skewed, so the median lands below the mean.
   check('mc: median value at retirement below the mean (volatility drag)',
     mc.summary.atRetirement.p50 < mc.summary.atRetirement.mean);
+  // The standard projection equals the deterministic avg run, and (right skew) is
+  // reached by fewer than half the runs.
+  check('mc: standard value = deterministic avg at retirement',
+    approx(mc.summary.standard.value, simulate(p).summary.atRetirement.value));
+  check('mc: standard projection reached by < 50 % of runs',
+    mc.summary.standard.probAtLeast > 0 && mc.summary.standard.probAtLeast < 0.5,
+    `probAtLeast=${mc.summary.standard.probAtLeast}`);
+  // One representative scenario per percentile, ranked by value at retirement.
+  check('mc: seven percentile scenarios', mc.summary.percentiles.length === 7
+    && mc.summary.percentiles.map((s) => s.p).join() === '5,10,25,50,75,90,95');
+  check('mc: percentile scenarios ordered by value at retirement',
+    mc.summary.percentiles.every((s, i, a) => i === 0 || a[i - 1].valueAtRetirement <= s.valueAtRetirement));
+  const mid = mc.summary.percentiles[3]; // the 50th
+  check('mc: percentile scenario carries a full metric set',
+    mid.p === 50 && Number.isFinite(mid.valueAtRetirement) && Number.isFinite(mid.dividendsPerYear)
+    && Array.isArray(mid.allocation) && mid.allocation.length === 1 && Number.isFinite(mid.finalValue)
+    && (mid.lastsYears === null || Number.isFinite(mid.lastsYears)));
   check('mc: best final value >= worst', mc.summary.best.finalValue >= mc.summary.worst.finalValue);
   check('mc: best/worst carry a trajectory', mc.summary.best.trajectory.length === expectYears
     && mc.summary.worst.trajectory.length === expectYears);
@@ -818,6 +835,19 @@ const base = {
     && Number.isFinite(stable.levers.monthlyWithdrawal.needed));
   const amount = solveTargets({ ...stableP, goalType: 'amount' });
   check('solveTargets: amount goal omits withdrawal lever', amount.levers.monthlyWithdrawal === undefined);
+}
+
+// solveTargets reports how long the money lasts so the UI can say *when* a depleted
+// portfolio runs out: a heavy withdrawal depletes (number), a tiny one survives (null).
+{
+  const common = { ...base, goalType: 'stableValue',
+    startingAmount: 200000, startingCostBasis: 200000, monthlyContribution: 0, yearsToRetirement: 0,
+    assets: singleAsset({ annualReturn: 4, volatility: 0 }), maxRetirementYears: 30 };
+  const drained = solveTargets({ ...common, monthlyWithdrawal: 5000 });
+  check('solveTargets: depleting scenario reports lastsYears', drained.lastsYears !== null
+    && drained.lastsYears > 0 && drained.lastsYears < 30, `lastsYears=${drained.lastsYears}`);
+  const survives = solveTargets({ ...common, monthlyWithdrawal: 1 });
+  check('solveTargets: surviving scenario has lastsYears = null', survives.lastsYears === null);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

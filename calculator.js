@@ -99,10 +99,25 @@
  * index 0 = today, one point per year through retirement + drawdown.
  * @typedef {{ p5: number, p10: number, p25: number, p50: number, p75: number, p90: number, p95: number, mean: number }} Band
  * @typedef {{ index: number, finalValue: number, trajectory: number[] }} ExtremeRun
+ *
+ * A representative run for one percentile (ranked by value at retirement). All
+ * fields come from that single run, so the figures are a coherent scenario.
+ * @typedef {Object} PercentileScenario
+ * @property {number} p                  the percentile (5, 10, 25, 50, 75, 90, 95)
+ * @property {number} valueAtRetirement  nominal portfolio value at retirement
+ * @property {number} dividendsPerYear   net dividend income per year at retirement
+ * @property {number[]} allocation       per-asset value at retirement (params.assets order)
+ * @property {number | null} lastsYears  years the money lasts (null = survives the horizon)
+ * @property {number} finalValue         nominal value at the end of the simulated horizon
+ *
  * @typedef {Object} MonteCarloSummary
  * @property {number} runs
  * @property {number} probLasts                      share of runs that survive the full horizon (0..1)
  * @property {Band} atRetirement                      nominal value-at-retirement percentiles (mean unused)
+ * @property {{ value: number, probAtLeast: number }} standard  the deterministic ("avg") value at
+ *   retirement and the share of runs that reach at least it — below 50 % because the
+ *   compounded outcome distribution is right-skewed (the mean sits above the median)
+ * @property {PercentileScenario[]} percentiles       one representative run per percentile
  * @property {ExtremeRun} best                        run with the highest final value
  * @property {ExtremeRun} worst                       run with the lowest final value
  *
@@ -599,6 +614,8 @@ function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
   /** @type {number[][]} */
   const trajectories = [];
   const atRet = [];
+  /** @type {Omit<PercentileScenario, 'p'>[]} per-run metrics, for the percentile cards */
+  const records = [];
   let lasted = 0;
   let best = /** @type {ExtremeRun | null} */ (null);
   let worst = /** @type {ExtremeRun | null} */ (null);
@@ -613,6 +630,13 @@ function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
     }
     trajectories.push(traj);
     atRet.push(summary.atRetirement.value);
+    records.push({
+      valueAtRetirement: summary.atRetirement.value,
+      dividendsPerYear: summary.dividendsPerYearAtRetirement,
+      allocation: summary.atRetirement.perAsset.map((a) => a.value),
+      lastsYears: summary.lastsYears,
+      finalValue: summary.finalValue,
+    });
     if (summary.runOutMonth === null) lasted++;
     const finalValue = summary.finalValue;
     if (best === null || finalValue > best.finalValue) best = { index: i, finalValue, trajectory: traj };
@@ -625,6 +649,18 @@ function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
     bands.push(bandOf(trajectories.map((t) => t[y]).sort((a, b) => a - b)));
   }
 
+  // How likely the deterministic ("avg") projection actually is: the share of runs
+  // that reach at least its value at retirement.
+  const standardValue = simulate(params, 0).summary.atRetirement.value;
+  const probAtLeast = atRet.filter((v) => v >= standardValue).length / n;
+
+  // One representative run per percentile, ranked by value at retirement, so every
+  // figure on a card comes from a single coherent scenario.
+  const order = records.map((_, i) => i).sort((a, b) => records[a].valueAtRetirement - records[b].valueAtRetirement);
+  const percentiles = [5, 10, 25, 50, 75, 90, 95].map((p) => ({
+    p, ...records[order[Math.round((p / 100) * (n - 1))]],
+  }));
+
   return {
     runs: trajectories,
     bands,
@@ -632,6 +668,8 @@ function simulateMonteCarlo(rawParams, { runs, seed } = {}) {
       runs: n,
       probLasts: lasted / n,
       atRetirement: bandOf(atRet.slice().sort((a, b) => a - b)),
+      standard: { value: standardValue, probAtLeast },
+      percentiles,
       best: /** @type {ExtremeRun} */ (best),
       worst: /** @type {ExtremeRun} */ (worst),
     },
@@ -745,6 +783,10 @@ function solveTargets(rawParams, { baseShift = 0 } = {}) {
   // Real value left at the end of the drawdown horizon — only meaningful for the
   // stable-value goal, where it is compared against `current`.
   const finalReal = realFinalValue(params, baseShift);
+  // Years the money lasts under the base scenario (null = survives the whole
+  // horizon). Lets the UI say *when* a depleted portfolio runs out instead of
+  // framing a total wipe-out as a "shortfall of everything".
+  const lastsYears = simulate(params, baseShift).summary.lastsYears;
 
   // f(p, shift) === 0 exactly when the lever configured by (p, shift) meets the
   // goal; positive when it overshoots. Monotonically increasing in every lever.
@@ -812,6 +854,7 @@ function solveTargets(rawParams, { baseShift = 0 } = {}) {
     target: stable ? current : params.targetAmount,
     current,
     finalReal,
+    lastsYears,
     reached: stable ? finalReal >= current : current >= params.targetAmount,
     levers,
   };

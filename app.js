@@ -563,7 +563,7 @@ function redrawMcForToggle() {
 
 function drawMonteCarlo(result, params, displayReal) {
   const infl = params.inflation;
-  const logScale = $('logScale').checked;
+  const logScale = $('mcLogScale').checked;
   // Deflate to today's purchasing power when requested; on a log scale a 0 (a
   // depleted run) can't be plotted, so it becomes a gap.
   const defl = (y, year) => {
@@ -580,21 +580,26 @@ function drawMonteCarlo(result, params, displayReal) {
     spaghetti.push({ x: START_YEAR + (run.length - 1), y: null });
   }
 
-  // Each band = a (label-less) lower line plus an upper line that fills down to it
-  // (fill: '-1'). Nesting darker fills from 5–95 → 25–75 gives the layered look.
-  const lower = (pick) => ({ data: series(pick), borderColor: 'transparent', borderWidth: 0, pointRadius: 0, fill: false });
-  const upper = (pick, label, bg) => ({
-    label, data: series(pick), borderColor: 'transparent', borderWidth: 0,
-    backgroundColor: bg, pointRadius: 0, fill: '-1',
+  // Each percentile is its own labelled line so the tooltip and legend show it with
+  // its own value. The upper line of each pair fills down to its partner (fill: '-1',
+  // the immediately preceding dataset) to shade the band; nesting 5/95 → 25/75 with
+  // graduated blues gives the layered look.
+  const pct = (p) => t('mcPercentileFmt').replace('{p}', p);
+  const line = (pick, label, color, extra = {}) => ({
+    label, data: series(pick), borderColor: color, borderWidth: 1, pointRadius: 0, fill: false, ...extra,
   });
+  const band = (lo, hi, color, bg) => [
+    line((b) => b[`p${lo}`], pct(lo), color),
+    line((b) => b[`p${hi}`], pct(hi), color, { backgroundColor: bg, fill: '-1' }),
+  ];
 
   const datasets = [
     { label: t('mcChartRuns'), data: spaghetti, borderColor: 'rgba(37,99,235,0.07)', borderWidth: 0.5, pointRadius: 0, fill: false, spanGaps: false },
-    lower((b) => b.p5), upper((b) => b.p95, t('mcBand5_95'), 'rgba(37,99,235,0.08)'),
-    lower((b) => b.p10), upper((b) => b.p90, t('mcBand10_90'), 'rgba(37,99,235,0.10)'),
-    lower((b) => b.p25), upper((b) => b.p75, t('mcBand25_75'), 'rgba(37,99,235,0.16)'),
-    { label: t('mcChartMedian'), data: series((b) => b.p50), borderColor: '#2563eb', borderWidth: 2, pointRadius: 0, fill: false },
-    { label: t('mcChartMean'), data: series((b) => b.mean), borderColor: '#d97706', borderWidth: 2, borderDash: [5, 4], pointRadius: 0, fill: false },
+    ...band(5, 95, 'rgba(37,99,235,0.30)', 'rgba(37,99,235,0.08)'),
+    ...band(10, 90, 'rgba(37,99,235,0.45)', 'rgba(37,99,235,0.10)'),
+    ...band(25, 75, 'rgba(37,99,235,0.60)', 'rgba(37,99,235,0.16)'),
+    line((b) => b.p50, t('mcChartMedian'), '#2563eb', { borderWidth: 2 }),
+    line((b) => b.mean, t('mcChartMean'), '#d97706', { borderWidth: 2, borderDash: [5, 4] }),
   ];
 
   // Linear: frame around the 95th-percentile band so the bulk of the runs own the
@@ -629,6 +634,8 @@ function drawMonteCarlo(result, params, displayReal) {
       tooltip: {
         // The individual-runs dataset would spam the tooltip — only the summaries.
         filter: (item) => !!item.dataset.label && item.dataset.label !== t('mcChartRuns'),
+        // Order the rows by value (highest band on top) instead of dataset order.
+        itemSort: (a, b) => b.parsed.y - a.parsed.y,
         callbacks: {
           title: (items) => `${t('chartYear')} ${Math.round(items[0].parsed.x)}`,
           label: (item) => `${item.dataset.label}: ${fmtMoney(item.parsed.y)}`,
@@ -651,25 +658,51 @@ function drawMonteCarlo(result, params, displayReal) {
   }
 }
 
+// "X years" / "> N years" for a years-the-money-lasts figure (null = survives).
+function lastsYearsText(lastsYears, params) {
+  if (lastsYears === null) return t('summaryLastsShortMore').replace('{years}', params.maxRetirementYears);
+  return t('summaryLastsShort').replace('{years}', Math.round(lastsYears * 10) / 10);
+}
+
+// A full summary card for one percentile's representative run.
+function mcPercentileCard(sc, params, dRet, dEnd) {
+  const total = sc.allocation.reduce((acc, v) => acc + v, 0);
+  const alloc = params.assets.map((a, i) => {
+    const share = total > 0 ? Math.round((sc.allocation[i] / total) * 100) : 0;
+    return `${t(ASSET_LABEL_KEYS[a.id] || a.id)} ${share} %`;
+  }).join(' · ');
+  const rows = [
+    [t('summaryAtRetirement'), dRet(sc.valueAtRetirement)],
+    [t('summaryDividendsPerYear'), dRet(sc.dividendsPerYear)],
+    [t('summaryLasts'), lastsYearsText(sc.lastsYears, params)],
+    [t('mcCardEndValue'), dEnd(sc.finalValue)],
+    [t('mcCardAllocation'), alloc],
+  ];
+  return `<div class="card mc-pctile">
+    <h3>${t('mcPercentileFmt').replace('{p}', sc.p)}</h3>
+    <dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+  </div>`;
+}
+
 function renderMcSummary(result, params, displayReal) {
   const s = result.summary;
   const retMonth = Math.round(params.yearsToRetirement * 12);
-  const d = (v) => fmtMoney(deflate(v, params, displayReal, retMonth));
-  const pct = `${Math.round(s.probLasts * 100)} %`;
+  const endMonth = Math.round((params.yearsToRetirement + params.maxRetirementYears) * 12);
+  const dRet = (v) => fmtMoney(deflate(v, params, displayReal, retMonth));
+  const dEnd = (v) => fmtMoney(deflate(v, params, displayReal, endMonth));
 
+  // Overall odds: that the money lasts, and that the standard ("avg") projection is hit.
   $('mcSummary').innerHTML = [
-    card(t('mcProbLasts'), pct),
-    card(t('mcAtRetP10'), d(s.atRetirement.p10)),
-    card(t('mcAtRetP50'), d(s.atRetirement.p50)),
-    card(t('mcAtRetP90'), d(s.atRetirement.p90)),
+    card(t('mcProbLasts'), `${Math.round(s.probLasts * 100)} %`),
+    card(t('mcProbStandard'), `${Math.round(s.standard.probAtLeast * 100)} %`),
   ].join('');
 
-  // Best/worst run by final value, deflated at the end of the simulated horizon.
-  const endMonth = Math.round((params.yearsToRetirement + params.maxRetirementYears) * 12);
-  const fmtEnd = (v) => fmtMoney(deflate(v, params, displayReal, endMonth));
+  // One full card per percentile (each from a single representative run).
+  $('mcPercentileCards').innerHTML = s.percentiles.map((sc) => mcPercentileCard(sc, params, dRet, dEnd)).join('');
+
   $('mcExtremes').innerHTML = `
-    <span>${t('mcBest')}: <strong>${fmtEnd(s.best.finalValue)}</strong></span>
-    <span>${t('mcWorst')}: <strong>${fmtEnd(s.worst.finalValue)}</strong></span>`;
+    <span>${t('mcBest')}: <strong>${dEnd(s.best.finalValue)}</strong></span>
+    <span>${t('mcWorst')}: <strong>${dEnd(s.worst.finalValue)}</strong></span>`;
 }
 
 // The percentile goal-seek: map the selected percentile's value at retirement to an
@@ -681,7 +714,7 @@ function renderMcGoal(result, params) {
   // the current selection (default 10th — the pessimistic "bad run").
   const selected = sel.value ? Number(sel.value) : 10;
   sel.innerHTML = MC_GOAL_PERCENTILES.map((p) => `<option value="${p}"${p === selected ? ' selected' : ''}>${
-    t('mcGoalPercentileFmt').replace('{p}', p)}</option>`).join('');
+    t('mcPercentileFmt').replace('{p}', p)}</option>`).join('');
 
   const baseShift = shiftForValueAtRetirement(params, result.summary.atRetirement[`p${selected}`]);
   const goal = solveTargets(params, { baseShift });
@@ -720,9 +753,12 @@ function lastsShort(summary, params) {
   return t('summaryLastsShort').replace('{years}', Math.round(summary.lastsYears * 10) / 10);
 }
 
-function card(title, value, range) {
+// A summary card: a value, an optional min–max range line, and an optional extra
+// sub-line (already-formatted text, shown without the "Range:" prefix).
+function card(title, value, range, note) {
   return `<div class="card"><h3>${title}</h3><div class="value">${value}</div>${
-    range ? `<div class="range">${t('summaryRange')}: ${range}</div>` : ''}</div>`;
+    range ? `<div class="range">${t('summaryRange')}: ${range}</div>` : ''}${
+    note ? `<div class="range">${note}</div>` : ''}</div>`;
 }
 
 function renderSummary(scenarios, params, displayReal) {
@@ -730,13 +766,24 @@ function renderSummary(scenarios, params, displayReal) {
   const retMonth = avg.summary.accumulationMonths;
   const d = (v) => fmtMoney(deflate(v, params, displayReal, retMonth));
 
+  // Of the first retirement year's withdrawal, how much comes from dividends vs sales.
+  const fy = avg.summary.firstRetirementYear;
+  const salesNet = fy.sales.reduce((acc, s) => acc + s.net, 0);
+  const totalW = fy.withdrawalsNet;
+  const divNote = totalW > 0.5
+    ? (() => {
+        const salesPct = Math.round((salesNet / totalW) * 100);
+        return t('summaryDividendCoverage').replace('{div}', 100 - salesPct).replace('{sales}', salesPct);
+      })()
+    : undefined;
+
   const cards = [
     card(
       t('summaryAtRetirement'),
       d(avg.summary.atRetirement.value),
       `${d(min.summary.atRetirement.value)} – ${d(max.summary.atRetirement.value)}`,
+      `${t('summaryNetIfSold')}: ${d(avg.summary.atRetirement.netIfSold)}`,
     ),
-    card(t('summaryNetIfSold'), d(avg.summary.atRetirement.netIfSold)),
     card(t('summaryContributions'), fmtMoney(avg.summary.totalContributions)),
     card(
       t('summaryGrowth'),
@@ -744,7 +791,7 @@ function renderSummary(scenarios, params, displayReal) {
       `${d(min.summary.totalGrowth)} – ${d(max.summary.totalGrowth)}`,
     ),
     card(t('summaryDividends'), fmtMoney(avg.summary.dividends.net)),
-    card(t('summaryDividendsPerYear'), d(avg.summary.dividendsPerYearAtRetirement)),
+    card(t('summaryDividendsPerYear'), d(avg.summary.dividendsPerYearAtRetirement), undefined, divNote),
     card(t('summaryKestPaid'), fmtMoney(avg.summary.kestOnSales)),
     card(
       t('summaryLasts'),
@@ -856,6 +903,13 @@ function targetIntroText(result, params) {
     // The bar is the value you retire on (result.current); the end-of-drawdown
     // real value (result.finalReal) must clear it for the portfolio to hold up.
     const start = fmtMoney(result.current);
+    // If the portfolio is fully drawn down before the horizon ends, the only useful
+    // figure is *when* it runs out — not a "shortfall of everything" against €0.
+    if (!result.reached && result.lastsYears !== null) {
+      return t('goalStableDepleted')
+        .replace('{start}', start)
+        .replace('{lasts}', fmtNum(result.lastsYears, 1));
+    }
     const end = fmtMoney(result.finalReal);
     const gap = fmtMoney(Math.abs(result.finalReal - result.current));
     return (result.reached ? t('goalStableReached') : t('goalStableShort'))
@@ -969,12 +1023,10 @@ function init() {
     $('importFile').value = ''; // allow re-importing the same file
   });
 
-  // Log-scale and nominal/real toggles redraw a cached Monte Carlo result without
-  // re-running it (the sim only runs on the explicit button click).
-  $('logScale').addEventListener('change', () => {
-    recalc();
-    redrawMcForToggle();
-  });
+  $('logScale').addEventListener('change', recalc);
+  // The MC chart has its own log-scale toggle; it and the nominal/real toggle redraw
+  // a cached Monte Carlo result without re-running it (the sim only runs on click).
+  $('mcLogScale').addEventListener('change', redrawMcForToggle);
   $('displayReal').addEventListener('change', redrawMcForToggle);
   $('runMonteCarlo').addEventListener('click', renderMonteCarlo);
   // Switching the goal-block percentile re-solves from the cached result (no re-run).
