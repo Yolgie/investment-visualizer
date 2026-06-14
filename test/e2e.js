@@ -34,15 +34,15 @@ function parseMoney(text) {
 }
 
 // renderSummary() emits the cards in this fixed order; address them by key.
+// (Net-if-sold is folded into the at-retirement card as a sub-line, not its own card.)
 const CARD_INDEX = {
   summaryAtRetirement: 0,
-  summaryNetIfSold: 1,
-  summaryContributions: 2,
-  summaryGrowth: 3,
-  summaryDividends: 4,
-  summaryDividendsPerYear: 5,
-  summaryKestPaid: 6,
-  summaryLasts: 7,
+  summaryContributions: 1,
+  summaryGrowth: 2,
+  summaryDividends: 3,
+  summaryDividendsPerYear: 4,
+  summaryKestPaid: 5,
+  summaryLasts: 6,
 };
 
 function cardValue(page, key) {
@@ -94,6 +94,17 @@ const scenarios = [
         .data.datasets[0].data.reduce((s, v) => s + v, 0);
       return sum('pieChart') > 0 && sum('allocationPie') > 0;
     }));
+    // Net-if-sold is folded into the at-retirement card as a sub-line (no own card).
+    const atRetCard = await page.locator('#summary .card').first().textContent();
+    expect('default: net-if-sold folded into the at-retirement card', atRetCard.includes('net if sold'), atRetCard);
+    // The dividends card shows what share of the first-year withdrawal it covers.
+    const divCard = await page.locator('#summary .card').nth(CARD_INDEX.summaryDividendsPerYear).textContent();
+    expect('default: dividends card shows the withdrawal-coverage split',
+      /%/.test(divCard) && divCard.includes('withdrawal'), divCard);
+    // The withdrawal table now lives in the same box as the per-asset breakdown.
+    const breakdownBox = page.locator('section', { has: page.locator('#perAssetTable') });
+    expect('default: withdrawal table merged into the breakdown box',
+      (await breakdownBox.locator('#withdrawalTable').count()) === 1);
   },
 
   // 2. Language toggle flips every label and persists across a reload.
@@ -294,10 +305,13 @@ const scenarios = [
     expect('stable: amount input hidden in stable mode', !(await page.isVisible('#targetAmountRow')));
     expect('stable: stable hint shown in stable mode', await page.isVisible('#goalStableHint'));
 
-    // Defaults (modest pot, €2000/mo) erode the real value over the drawdown.
+    // Defaults (modest pot, €2000/mo) drain the portfolio before the horizon ends,
+    // so the intro reports WHEN it runs out — not a "shortfall of everything".
     const intro = await page.locator('#targetIntro').textContent();
-    expect('stable: intro reframed around real value', intro.includes('Real value'), intro);
+    expect('stable: depleted intro reports the run-out timing', intro.includes('runs out'), intro);
     expect('stable: intro mentions the drawdown horizon', intro.includes('drawdown'), intro);
+    expect('stable: depleted intro avoids the shortfall-of-everything wording',
+      !intro.includes('shortfall'), intro);
     const contribRow = page.locator('#targetTable tbody tr').first();
     expect('stable: a lever shows an upward change',
       (await contribRow.locator('td').last().textContent()).includes('↑'));
@@ -320,10 +334,16 @@ const scenarios = [
     await page.click('#runMonteCarlo');
     await page.waitForFunction(() => window.Chart && !!window.Chart.getChart(document.getElementById('monteCarloChart')));
     expect('mc: results shown after running', await page.locator('#mcResults').isVisible());
-    expect('mc: four summary cards', (await page.locator('#mcSummary .card').count()) === 4);
-
+    expect('mc: two overall probability cards', (await page.locator('#mcSummary .card').count()) === 2);
     const prob = await page.locator('#mcSummary .card').first().locator('.value').textContent();
     expect('mc: probability rendered as a percentage', /%/.test(prob), prob);
+    const probStd = await page.locator('#mcSummary .card').nth(1).locator('.value').textContent();
+    expect('mc: standard-projection probability rendered as a percentage', /%/.test(probStd), probStd);
+
+    // One full card per percentile (5/10/25/50/75/90/95), each with several metric rows.
+    expect('mc: seven percentile cards', (await page.locator('#mcPercentileCards .card').count()) === 7);
+    expect('mc: percentile cards carry metric rows',
+      (await page.locator('#mcPercentileCards .card').first().locator('dl > div').count()) === 5);
     expect('mc: best/worst callouts present', (await page.locator('#mcExtremes span').count()) === 2);
     expect('mc: goal table populated', (await page.locator('#mcGoalTable tbody tr').count()) > 0);
 
@@ -340,9 +360,11 @@ const scenarios = [
     const projP90 = await projection();
     expect('mc: 90th-percentile projection exceeds the 10th', projP90 > projP10, `${projP90} vs ${projP10}`);
 
-    // The log-scale toggle redraws the cached MC chart without re-running it.
-    await page.check('#logScale');
+    // The MC chart's own log-scale toggle redraws the cached chart without re-running it.
+    await page.check('#mcLogScale');
     expect('mc: log scale applies to the MC chart', (await yScaleType(page, 'monteCarloChart')) === 'logarithmic');
+    // The main chart keeps its own independent log toggle (still linear here).
+    expect('mc: main chart unaffected by the MC log toggle', (await yScaleType(page, 'chart')) === 'linear');
   },
 
   // 16. Per-asset volatility survives an export → reset → import round-trip.

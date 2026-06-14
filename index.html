@@ -210,20 +210,37 @@
           <span data-i18n="displayReal"></span>
         </label>
       </details>
-
-      <div class="storage-row">
-        <label class="checkbox">
-          <input type="checkbox" id="saveInputs">
-          <span data-i18n="saveInputs"></span>
-        </label>
-        <span class="button-row">
-          <button type="button" id="exportInputs" data-i18n="exportInputs"></button>
-          <button type="button" id="importInputs" data-i18n="importInputs"></button>
-          <input type="file" id="importFile" accept="application/json,.json" class="hidden">
-          <button type="button" id="resetDefaults" data-i18n="resetDefaults"></button>
-        </span>
-      </div>
     </form>
+
+    <section class="chart-section">
+      <h2 data-i18n="mcTitle"></h2>
+      <p class="hint" data-i18n="mcIntro"></p>
+      <button type="button" id="runMonteCarlo" data-i18n="mcRun"></button>
+      <div id="mcResults" class="hidden">
+        <label class="checkbox chart-option">
+          <input type="checkbox" id="mcLogScale">
+          <span data-i18n="chartLogScale"></span>
+        </label>
+        <div class="chart-wrap">
+          <canvas id="monteCarloChart"></canvas>
+        </div>
+        <section id="mcSummary" class="summary"></section>
+        <div id="mcPercentileCards" class="summary"></div>
+        <div id="mcExtremes" class="mc-extremes"></div>
+        <div id="mcGoal">
+          <h3 data-i18n="mcGoalTitle"></h3>
+          <label class="mc-goal-select">
+            <span data-i18n="mcGoalSelect"></span>
+            <select id="mcGoalPercentile"></select>
+          </label>
+          <p id="mcGoalIntro"></p>
+          <p class="hint" data-i18n="mcGoalNote"></p>
+          <div class="table-wrap">
+            <table id="mcGoalTable"></table>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div class="chart-grid">
       <section class="chart-section">
@@ -245,54 +262,29 @@
       </section>
     </div>
 
-    <section class="chart-section">
-      <h2 data-i18n="mcTitle"></h2>
-      <p class="hint" data-i18n="mcIntro"></p>
-      <button type="button" id="runMonteCarlo" data-i18n="mcRun"></button>
-      <div id="mcResults" class="hidden">
-        <div class="chart-wrap">
-          <canvas id="monteCarloChart"></canvas>
-        </div>
-        <section id="mcSummary" class="summary"></section>
-        <div id="mcExtremes" class="mc-extremes"></div>
-        <div id="mcGoal">
-          <h3 data-i18n="mcGoalTitle"></h3>
-          <label class="mc-goal-select">
-            <span data-i18n="mcGoalSelect"></span>
-            <select id="mcGoalPercentile"></select>
-          </label>
-          <p id="mcGoalIntro"></p>
-          <p class="hint" data-i18n="mcGoalNote"></p>
-          <div class="table-wrap">
-            <table id="mcGoalTable"></table>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section id="summary" class="summary"></section>
 
-    <section>
-      <h2 data-i18n="targetTitle"></h2>
-      <p id="targetIntro"></p>
-      <div class="table-wrap">
-        <table id="targetTable"></table>
-      </div>
-    </section>
+    <div class="results-grid">
+      <section>
+        <h2 data-i18n="targetTitle"></h2>
+        <p id="targetIntro"></p>
+        <div class="table-wrap">
+          <table id="targetTable"></table>
+        </div>
+      </section>
 
-    <section>
-      <h2 data-i18n="withdrawalBreakdownTitle"></h2>
-      <div class="table-wrap">
-        <table id="withdrawalTable"></table>
-      </div>
-    </section>
-
-    <section>
-      <h2 data-i18n="perAssetAtRetirement"></h2>
-      <div class="table-wrap">
-        <table id="perAssetTable"></table>
-      </div>
-    </section>
+      <section>
+        <h2 data-i18n="perAssetAtRetirement"></h2>
+        <h3 class="subhead" data-i18n="withdrawalBreakdownTitle"></h3>
+        <div class="table-wrap">
+          <table id="withdrawalTable"></table>
+        </div>
+        <h3 class="subhead" data-i18n="pieAllocationTitle"></h3>
+        <div class="table-wrap">
+          <table id="perAssetTable"></table>
+        </div>
+      </section>
+    </div>
 
     <section>
       <h2 data-i18n="pieTitle"></h2>
@@ -307,6 +299,19 @@
         </figure>
       </div>
     </section>
+
+    <div class="storage-row">
+      <label class="checkbox">
+        <input type="checkbox" id="saveInputs">
+        <span data-i18n="saveInputs"></span>
+      </label>
+      <span class="button-row">
+        <button type="button" id="exportInputs" data-i18n="exportInputs"></button>
+        <button type="button" id="importInputs" data-i18n="importInputs"></button>
+        <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+        <button type="button" id="resetDefaults" data-i18n="resetDefaults"></button>
+      </span>
+    </div>
   </main>
 
   <footer>
