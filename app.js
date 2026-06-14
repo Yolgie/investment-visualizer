@@ -599,24 +599,12 @@ function drawMonteCarlo(result, params, displayReal) {
   const logScale = $('mcLogScale').checked;
   const deflate = (y, year) => (displayReal ? y / Math.pow(1 + infl / 100, year) : y);
 
-  // On a log axis a 0 (a depleted run) has no place. Nulling it out makes the line
-  // vanish mid-descent; instead we floor non-positive values to one decade below the
-  // smallest positive value and pin the axis there, so a run that runs out visibly
-  // drops to the bottom and tracks along it rather than just stopping.
-  let floor;
-  if (logScale) {
-    let minPos = Infinity;
-    for (const run of result.runs) {
-      for (let year = 0; year < run.length; year++) {
-        const v = deflate(run[year], year);
-        if (v > 0 && v < minPos) minPos = v;
-      }
-    }
-    // Drop to the power of 10 below the smallest positive value: a clean axis
-    // minimum (so the bottom tick is a round number) that still sits a clear
-    // decade or so under the lowest real value.
-    if (minPos !== Infinity) floor = Math.pow(10, Math.floor(Math.log10(minPos)) - 1);
-  }
+  // On a log axis a 0 (a depleted run) has no place, and the 1–10k decades carry
+  // little signal while eating half the vertical space. So we pin the axis at a
+  // fixed 10k floor and clamp anything at or below it to that floor: depleted or
+  // near-depleted runs visibly drop to the bottom and track along it rather than
+  // stretching the scale across decades nobody cares about.
+  const floor = logScale ? 10000 : undefined;
   const defl = (y, year) => {
     const v = deflate(y, year);
     return logScale && floor !== undefined ? Math.max(v, floor) : v;
