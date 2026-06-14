@@ -38,7 +38,7 @@
  * @property {AllocationSwitch} allocationSwitch
  * @property {boolean} reinvestDividends
  * @property {boolean} ageEnabled       tax accumulating funds' deemed-distributed income annually (per-asset ageRate)
- * @property {number} scenarioSpread
+ * @property {number} scenarioVolFactor  min/max band width as a multiple of each asset's volatility
  * @property {number} monthlyWithdrawal
  * @property {boolean} withdrawalInflationAdjusted
  * @property {number} kest
@@ -172,8 +172,11 @@ const DEFAULT_PARAMS = {
   // annually at KESt, with a cost-basis step-up. Off by default — the projection then
   // matches the prior behavior (accumulating funds taxed only on sale).
   ageEnabled: false,
-  // min/max scenarios shift every asset's annualReturn by -/+ this many percentage points.
-  scenarioSpread: 3,
+  // min/max scenarios shift every asset's annualReturn by -/+ this multiple of the
+  // asset's own annual volatility (so riskier classes get a wider band, risk-free
+  // classes barely move — far more realistic than a flat percentage-point spread).
+  // 0.2 keeps the default ETF (vol 15) band at the familiar ±3 pp.
+  scenarioVolFactor: 0.2,
 
   // Desired net (after KESt) monthly withdrawal in retirement.
   monthlyWithdrawal: 2000,
@@ -604,10 +607,22 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
  */
 function simulateScenarios(rawParams) {
   const params = withDefaults(rawParams);
+  // The min/max band shifts each asset's return by ±factor × its own volatility,
+  // so a riskier class spreads wider than a stable one (a risk-free class with
+  // volatility 0 doesn't move at all). Returns a params clone with the shifted
+  // returns baked in; simulate() then runs it as an ordinary deterministic path.
+  const factor = params.scenarioVolFactor;
+  const shifted = (/** @type {number} */ sign) => ({
+    ...params,
+    assets: params.assets.map((a) => ({
+      ...a,
+      annualReturn: a.annualReturn + sign * factor * a.volatility,
+    })),
+  });
   return {
-    min: simulate(params, -params.scenarioSpread),
+    min: simulate(shifted(-1)),
     avg: simulate(params, 0),
-    max: simulate(params, params.scenarioSpread),
+    max: simulate(shifted(1)),
   };
 }
 

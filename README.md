@@ -32,7 +32,8 @@ files, ready for GitHub Pages.
   proportionally
 - Composition pie uses the paid-in capital: pre-existing gains in the starting
   amount count as growth, not as paid-in money
-- Min / average / max return scenarios (configurable ± spread) shown as a band
+- Min / average / max return scenarios shown as a band — the ± spread scales with
+  each asset's volatility (riskier classes swing wider), set via a configurable factor
 - **Monte Carlo volatility simulation** (on-demand): a per-asset annual return
   volatility drives a configurable number of runs (default 1000) with random
   monthly returns (lognormal, so factors stay positive and outcomes are
