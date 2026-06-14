@@ -65,6 +65,7 @@ function setFormValues(params, ui) {
   $('allocationSwitchEnabled').checked = params.allocationSwitch.enabled;
   $('allocationSwitchYear').value = params.allocationSwitch.year;
   $('reinvestDividends').checked = params.reinvestDividends;
+  $('ageEnabled').checked = !!params.ageEnabled;
   $('monthlyWithdrawal').value = params.monthlyWithdrawal;
   $('withdrawalInflationAdjusted').checked = params.withdrawalInflationAdjusted;
   $('kest').value = params.kest;
@@ -93,6 +94,7 @@ function setFormValues(params, ui) {
       let fallback;
       if (field === 'withdrawalShare') fallback = defaults.withdrawalShare ?? 0;
       else if (field === 'volatility') fallback = defaults.volatility ?? 0;
+      else if (field === 'ageRate') fallback = defaults.ageRate ?? 0;
       else fallback = asset.allocation ?? 0;
       input.value = asset[field] ?? fallback;
     }
@@ -130,6 +132,7 @@ function readParams() {
       year: Math.max(1, num($('allocationSwitchYear'), 20)),
     },
     reinvestDividends: $('reinvestDividends').checked,
+    ageEnabled: $('ageEnabled').checked,
     scenarioSpread: Math.max(0, num($('scenarioSpread'))),
     monthlyWithdrawal: num($('monthlyWithdrawal')),
     withdrawalInflationAdjusted: $('withdrawalInflationAdjusted').checked,
@@ -213,6 +216,10 @@ function updateAllocationUI(params) {
   const lateVisible = params.allocationSwitch.enabled;
   for (const el of document.querySelectorAll('.late-col')) {
     el.classList.toggle('hidden', !lateVisible);
+  }
+  // The per-asset deemed-income column only shows when the feature is enabled.
+  for (const el of document.querySelectorAll('.age-col')) {
+    el.classList.toggle('hidden', !params.ageEnabled);
   }
   $('allocationSwitchYearRow').classList.toggle('hidden', !lateVisible);
   for (const el of document.querySelectorAll('.switch-year-label')) {
@@ -832,6 +839,10 @@ function renderSummary(scenarios, params, displayReal) {
     card(t('summaryDividends'), fmtMoney(avg.summary.dividends.net)),
     card(t('summaryDividendsPerYear'), d(avg.summary.dividendsPerYearAtRetirement), undefined, divNote),
     card(t('summaryKestPaid'), fmtMoney(avg.summary.kestOnSales)),
+    // Only shown when deemed-income taxation is on (otherwise the figure is 0).
+    ...(avg.summary.deemedIncome.kest > 0.5
+      ? [card(t('summaryKestDeemed'), fmtMoney(avg.summary.deemedIncome.kest))]
+      : []),
     card(
       t('summaryLasts'),
       (avg.summary.keepsGrowing
@@ -1078,6 +1089,15 @@ function init() {
   });
 
   $('langToggle').addEventListener('click', () => setLanguage(lang === 'de' ? 'en' : 'de'));
+
+  // Info icons toggle the explanatory box they point at (data-info-target).
+  for (const btn of document.querySelectorAll('.info-icon')) {
+    btn.addEventListener('click', () => {
+      const box = $(btn.dataset.infoTarget);
+      const open = !box.classList.toggle('hidden');
+      btn.setAttribute('aria-expanded', String(open));
+    });
+  }
 }
 
 init();

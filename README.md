@@ -50,8 +50,9 @@ files, ready for GitHub Pages.
 - Export / import of all inputs as a JSON file (for sharing or backup)
 
 > ⚠️ **Disclaimer:** This is a simplified model for visualization purposes —
-> not tax or investment advice. In particular, the annual taxation of
-> accumulating funds (*ausschüttungsgleiche Erträge*) is **not** modeled.
+> not tax or investment advice. The annual taxation of accumulating funds
+> (*ausschüttungsgleiche Erträge*) can **optionally** be included via a
+> parameter, using a per-asset estimate of the internally earned income.
 
 ## Run locally
 
@@ -148,8 +149,11 @@ versioned shape:
 
 ## Future ideas
 
-- [ ] *Ausschüttungsgleiche Erträge*: annual taxation of accumulating ETFs with
-      cost-basis step-up (the big missing piece of the Austrian tax model)
+- [x] *Ausschüttungsgleiche Erträge*: optional annual taxation of accumulating
+      funds with cost-basis step-up. A master toggle in the Parameters section
+      reveals a per-asset deemed-income rate (% p.a.) in the portfolio table; the
+      yearly KESt is deducted from the position and the gross income steps up the
+      cost basis. Off by default (projection unchanged).
 - [x] Monte Carlo volatility simulation: configurable volatility % and number of
       runs, percentile bands, probability the money lasts. `simulate()` takes an
       optional `{ rng }` so each month's per-asset growth factor is drawn from a

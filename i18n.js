@@ -49,6 +49,7 @@ const I18N = {
     volatility: 'Volatilität % p.a.',
     dividendYield: 'Dividende % p.a.',
     ter: 'TER % p.a.',
+    ageRate: 'Aussch.-gl. Erträge % p.a.',
     assetEtf: 'ETFs',
     assetBonds: 'Anleihen',
     assetStocks: 'Aktien',
@@ -72,6 +73,8 @@ const I18N = {
     maxRetirementYears: 'Simulierte Jahre in der Pension (max.)',
     monteCarloRuns: 'Monte-Carlo-Durchläufe',
     monteCarloRunsHint: 'Anzahl der Zufallssimulationen für die Streuung der Ergebnisse.',
+    ageEnabled: 'Ausschüttungsgleiche Erträge thesaurierender Fonds besteuern',
+    ageInfo: 'Thesaurierende (wiederveranlagende) Fonds schütten nicht aus, ihre intern erwirtschafteten Erträge gelten in Österreich aber jährlich als zugeflossen (ausschüttungsgleiche Erträge) und werden mit KESt besteuert. Die bezahlte Steuer erhöht die Anschaffungskosten, sodass dieser Teil beim Verkauf nicht erneut besteuert wird. Ist die Option aktiv, erscheint im Portfolio je Anlageklasse ein Prozentsatz — eine Schätzung des intern erwirtschafteten Ertragsanteils pro Jahr (Standard 1,8 %; ausschüttende Klassen 0 %, da deren Erträge bereits über die Dividende besteuert werden). Vereinfachtes Modell, keine Steuerberatung.',
     displayReal: 'Werte inflationsbereinigt anzeigen (heutige Kaufkraft)',
 
     saveInputs: 'Eingaben in diesem Browser speichern',
@@ -131,6 +134,7 @@ const I18N = {
     summaryLastsShortMore: '> {years} Jahre (Simulationsende)',
     summaryRange: 'Spanne',
     summaryKestPaid: 'KESt auf realisierte Kursgewinne (Verkäufe)',
+    summaryKestDeemed: 'KESt auf ausschüttungsgleiche Erträge',
 
     withdrawalBreakdownTitle: 'Entnahmen im ersten Pensionsjahr',
     wbSource: 'Quelle',
@@ -143,7 +147,7 @@ const I18N = {
     keepsGrowing: 'Das Portfolio wächst trotz Entnahmen weiter',
 
     perAssetAtRetirement: 'Aufteilung bei Pensionsantritt',
-    disclaimer: 'Vereinfachtes Modell — keine Steuer- oder Anlageberatung. Ausschüttungsgleiche Erträge thesaurierender Fonds sind nicht berücksichtigt.',
+    disclaimer: 'Vereinfachtes Modell — keine Steuer- oder Anlageberatung. Ausschüttungsgleiche Erträge thesaurierender Fonds können optional berücksichtigt werden.',
     languageToggle: 'EN',
   },
 
@@ -194,6 +198,7 @@ const I18N = {
     volatility: 'Volatility % p.a.',
     dividendYield: 'Dividend % p.a.',
     ter: 'TER % p.a.',
+    ageRate: 'Deemed income % p.a.',
     assetEtf: 'ETFs',
     assetBonds: 'Bonds',
     assetStocks: 'Stocks',
@@ -217,6 +222,8 @@ const I18N = {
     maxRetirementYears: 'Simulated retirement years (max.)',
     monteCarloRuns: 'Monte Carlo runs',
     monteCarloRunsHint: 'Number of random simulations used for the spread of outcomes.',
+    ageEnabled: 'Tax deemed-distributed income of accumulating funds',
+    ageInfo: 'Accumulating funds do not pay distributions, but in Austria the income they earn internally counts as received each year (ausschüttungsgleiche Erträge / deemed-distributed income) and is taxed at KESt. The tax paid steps up the cost basis, so that portion is not taxed again on sale. When enabled, a per-asset percentage appears in the portfolio — an estimate of the share of value earned as income per year (default 1.8 %; distributing classes 0 %, since their income is already taxed via the dividend). Simplified model, not tax advice.',
     displayReal: 'Show inflation-adjusted values (today’s purchasing power)',
 
     saveInputs: 'Save my inputs in this browser',
@@ -276,6 +283,7 @@ const I18N = {
     summaryLastsShortMore: '> {years} years (end of simulation)',
     summaryRange: 'Range',
     summaryKestPaid: 'KESt on realized gains (sales)',
+    summaryKestDeemed: 'KESt on deemed income',
 
     withdrawalBreakdownTitle: 'Withdrawals in the first retirement year',
     wbSource: 'Source',
@@ -288,7 +296,7 @@ const I18N = {
     keepsGrowing: 'The portfolio keeps growing despite withdrawals',
 
     perAssetAtRetirement: 'Breakdown at retirement',
-    disclaimer: 'Simplified model — not tax or investment advice. Annual taxation of accumulating funds (ausschüttungsgleiche Erträge) is not modeled.',
+    disclaimer: 'Simplified model — not tax or investment advice. Annual taxation of accumulating funds (ausschüttungsgleiche Erträge) can optionally be included.',
     languageToggle: 'DE',
   },
 };

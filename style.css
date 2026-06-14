@@ -108,6 +108,27 @@ input[type="number"]:focus, select:focus { outline: 2px solid var(--accent); out
 .indent { margin: 0.4rem 0 0 1.7rem; }
 .small-input { width: 5rem !important; display: inline-block; }
 
+/* A small ⓘ toggle that reveals its .info-box (linked via data-info-target). */
+.info-icon {
+  border: none;
+  background: none;
+  padding: 0 0.15rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+.info-icon:hover { color: var(--accent); }
+.info-box {
+  margin: 0.4rem 0 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 /* Result tables size to their content and stay left-aligned, so columns don't
