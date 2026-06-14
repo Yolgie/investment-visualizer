@@ -25,6 +25,8 @@
  * @property {number} dividendYield     distributions, % p.a.
  * @property {number} ter               fund costs, % p.a.
  * @property {number} [volatility]      annual standard deviation of returns, % p.a. (Monte Carlo; defaults to 0)
+ * @property {number} [ageRate]         deemed-distributed income (ausschüttungsgleiche Erträge), % p.a. of value;
+ *                                      taxed annually when params.ageEnabled is on (defaults to 0)
  *
  * @typedef {Object} Params
  * @property {number} startingAmount
@@ -35,6 +37,7 @@
  * @property {Asset[]} assets
  * @property {AllocationSwitch} allocationSwitch
  * @property {boolean} reinvestDividends
+ * @property {boolean} ageEnabled       tax accumulating funds' deemed-distributed income annually (per-asset ageRate)
  * @property {number} scenarioSpread
  * @property {number} monthlyWithdrawal
  * @property {boolean} withdrawalInflationAdjusted
@@ -47,10 +50,10 @@
  *
  * The shape after withDefaults(): the optional allocation/withdrawal/volatility fields
  * are resolved to numbers, so the simulation never has to re-handle missing values.
- * @typedef {Asset & { allocationStart: number, allocationLate: number, withdrawalShare: number, volatility: number }} ResolvedAsset
+ * @typedef {Asset & { allocationStart: number, allocationLate: number, withdrawalShare: number, volatility: number, ageRate: number }} ResolvedAsset
  * @typedef {Omit<Params, 'assets'> & { assets: ResolvedAsset[] }} ResolvedParams
  *
- * @typedef {{ id: string, value: number, basis: number, growthRate: number, volRate: number, logDrift: number, dividendRate: number, withdrawalShare: number }} Bucket
+ * @typedef {{ id: string, value: number, basis: number, growthRate: number, volRate: number, logDrift: number, dividendRate: number, ageRate: number, withdrawalShare: number }} Bucket
  *
  * @typedef {Object} MonthRecord
  * @property {number} month
@@ -87,6 +90,7 @@
  * @property {number} dividendsPerYearAtRetirement
  * @property {number} kestOnDividends
  * @property {number} kestOnSales
+ * @property {{ gross: number, kest: number }} deemedIncome  ausschüttungsgleiche Erträge: gross deemed income and the KESt on it
  * @property {number | null} runOutMonth
  * @property {number | null} lastsYears
  * @property {number} finalValue
@@ -146,20 +150,28 @@ const DEFAULT_PARAMS = {
   // dispersion; 0 means a deterministic asset). withdrawalShare: which assets are sold to
   // fund the retirement withdrawal (in %, should sum to 100). Once those run dry, selling
   // falls back to the remaining assets proportionally by value.
+  // ageRate = deemed-distributed income (ausschüttungsgleiche Erträge), % p.a. of value:
+  // the internal income an accumulating fund retains, taxed annually when ageEnabled is on
+  // (see applyDeemedIncome). Accumulating classes default to ~1.8 %; dividendStocks defaults
+  // to 0 because it already distributes (dividendYield 3 %) — a deemed rate would double-count.
   // Default portfolio is ETFs only — a single broad index fund. The other asset
   // classes ship at 0 % so they stay available in the (collapsible) allocation
   // table without complicating the out-of-the-box projection.
   assets: [
-    { id: 'etf', allocationStart: 100, allocation: 100, allocationLate: 100, withdrawalShare: 100, annualReturn: 6.5, dividendYield: 0, ter: 0.2, volatility: 15 },
-    { id: 'bonds', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1, volatility: 5 },
-    { id: 'stocks', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 7, dividendYield: 0, ter: 0, volatility: 20 },
-    { id: 'dividendStocks', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0, volatility: 14 },
+    { id: 'etf', allocationStart: 100, allocation: 100, allocationLate: 100, withdrawalShare: 100, annualReturn: 6.5, dividendYield: 0, ter: 0.2, volatility: 15, ageRate: 1.8 },
+    { id: 'bonds', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 2.5, dividendYield: 0, ter: 0.1, volatility: 5, ageRate: 1.8 },
+    { id: 'stocks', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 7, dividendYield: 0, ter: 0, volatility: 20, ageRate: 1.8 },
+    { id: 'dividendStocks', allocationStart: 0, allocation: 0, allocationLate: 0, withdrawalShare: 0, annualReturn: 4, dividendYield: 3, ter: 0, volatility: 14, ageRate: 0 },
   ],
   // From year `year` on, contributions are split by allocationLate instead of allocation.
   // Existing holdings are never sold/rebalanced (no tax event).
   allocationSwitch: { enabled: false, year: 20 },
 
   reinvestDividends: true,
+  // Tax accumulating funds' deemed-distributed income (ausschüttungsgleiche Erträge)
+  // annually at KESt, with a cost-basis step-up. Off by default — the projection then
+  // matches the prior behavior (accumulating funds taxed only on sale).
+  ageEnabled: false,
   // min/max scenarios shift every asset's annualReturn by -/+ this many percentage points.
   scenarioSpread: 3,
 
@@ -210,6 +222,9 @@ function withDefaults(partial) {
       allocationLate: a.allocationLate ?? allocation,
       withdrawalShare: a.withdrawalShare ?? 0,
       volatility: a.volatility ?? 0,
+      // Deemed-income rate added after older files were saved; absent => 0 (no
+      // deemed income), so a legacy file keeps the prior tax-on-sale-only behavior.
+      ageRate: a.ageRate ?? 0,
     };
   });
   return { ...p, assets };
@@ -308,6 +323,8 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
       // clamps the annual rate at ≥ -99 %), so the log is well defined.
       logDrift: Math.log(1 + growthRate) - (volRate * volRate) / 2,
       dividendRate: a.dividendYield / 100 / 12,
+      // Annual deemed-income fraction (ausschüttungsgleiche Erträge), applied per year.
+      ageRate: Math.max(0, a.ageRate) / 100,
       withdrawalShare: Math.max(0, a.withdrawalShare),
     };
   });
@@ -329,6 +346,8 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
   let dividendsPaidOut = 0;
   let kestOnDividends = 0;
   let kestOnSales = 0;
+  let deemedIncomeGross = 0;
+  let kestOnDeemedIncome = 0;
 
   const totalValue = () => buckets.reduce((s, b) => s + b.value, 0);
   const totalBasis = () => buckets.reduce((s, b) => s + b.basis, 0);
@@ -386,6 +405,25 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
     }
   };
 
+  // Annual deemed-distributed income (ausschüttungsgleiche Erträge) for accumulating
+  // funds: the income the fund earns internally is taxed at KESt each year, and the
+  // gross income steps up the cost basis so that slice is not taxed again on sale.
+  // The income is already part of the NAV (it sits in annualReturn), so value is not
+  // increased — only the tax is deducted (a real outflow, treated as a clean deduction
+  // rather than a sale, so it triggers no further capital-gains tax). No-op when off.
+  const applyDeemedIncome = () => {
+    if (!params.ageEnabled) return;
+    for (const b of buckets) {
+      const income = b.value * b.ageRate;
+      if (income <= 0) continue;
+      const tax = income * kest;
+      b.basis += income;
+      b.value -= tax;
+      deemedIncomeGross += income;
+      kestOnDeemedIncome += tax;
+    }
+  };
+
   // --- Accumulation phase ---------------------------------------------------
   const accumulationMonths = Math.round(params.yearsToRetirement * 12);
   let contribution = params.monthlyContribution;
@@ -410,6 +448,8 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
     else dividendsPaidOut += net;
 
     applyGrowth();
+    // Deemed income is assessed yearly; apply it on each completed 12-month block.
+    if ((m + 1) % 12 === 0) applyDeemedIncome();
     record(m + 1, 'accumulation', net);
   }
 
@@ -529,6 +569,8 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
     }
 
     applyGrowth();
+    // The yearly deemed-income tax obligation continues through the drawdown phase.
+    if ((absMonth + 1) % 12 === 0) applyDeemedIncome();
     record(absMonth + 1, 'drawdown', netDividends);
   }
 
@@ -543,6 +585,7 @@ function simulate(rawParams, scenarioShift = 0, options = {}) {
       dividendsPerYearAtRetirement,
       kestOnDividends,
       kestOnSales,
+      deemedIncome: { gross: deemedIncomeGross, kest: kestOnDeemedIncome },
       runOutMonth,
       // Years the withdrawal lasted; null means it survived the whole simulated cap.
       lastsYears: runOutMonth === null ? null : (runOutMonth - accumulationMonths) / 12,

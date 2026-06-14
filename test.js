@@ -495,6 +495,8 @@ const base = {
     p.assets[0].allocationLate === 60 && p.assets[1].allocationLate === 40);
   check('compat: withdrawalShare defaults to 0',
     p.assets[0].withdrawalShare === 0 && p.assets[1].withdrawalShare === 0);
+  check('compat: ageRate defaults to 0', p.assets[0].ageRate === 0 && p.assets[1].ageRate === 0);
+  check('compat: ageEnabled defaults to false', p.ageEnabled === false, p.ageEnabled);
   check('compat: targetAmount default filled', p.targetAmount === DEFAULT_PARAMS.targetAmount, p.targetAmount);
   check('compat: goalType defaults to amount', p.goalType === 'amount', p.goalType);
   check('compat: contributionIncrease default filled',
@@ -584,6 +586,80 @@ const base = {
     `${r.summary.dividends.paidOut} != ${expectedPaidOut}`);
   check('paidOut: value unchanged without reinvestment', approx(r.summary.atRetirement.value, 10000),
     r.summary.atRetirement.value);
+}
+
+// 29b. Deemed-distributed income (ausschüttungsgleiche Erträge): off by default,
+//      and when on it is taxed yearly with a cost-basis step-up.
+{
+  const make = (ageEnabled) => Object.assign({}, base, {
+    startingAmount: 10000, startingCostBasis: 10000, monthlyContribution: 0,
+    yearsToRetirement: 1, reinvestDividends: false, ageEnabled,
+    assets: singleAsset({ ageRate: 10 }), // 10 % deemed income, zero price return
+  });
+
+  // Off: the rate is ignored — no deemed-income tax, value untouched (prior behavior).
+  const off = simulate(make(false));
+  check('AgE off: no deemed-income KESt', off.summary.deemedIncome.kest === 0, off.summary.deemedIncome.kest);
+  check('AgE off: value unchanged by the rate', approx(off.summary.atRetirement.value, 10000),
+    off.summary.atRetirement.value);
+
+  // On: one year of 10 % deemed income on 10 000 = 1 000 gross, taxed at 27.5 %.
+  const on = simulate(make(true));
+  const income = 10000 * 0.10;
+  const tax = income * 0.275;
+  check('AgE on: gross deemed income', approx(on.summary.deemedIncome.gross, income),
+    `${on.summary.deemedIncome.gross} != ${income}`);
+  check('AgE on: KESt on deemed income', approx(on.summary.deemedIncome.kest, tax),
+    `${on.summary.deemedIncome.kest} != ${tax}`);
+  // The tax is deducted from the position; the gross income steps up the cost basis.
+  const at = on.summary.atRetirement;
+  check('AgE on: tax deducted from value', approx(at.value, 10000 - tax), `${at.value} != ${10000 - tax}`);
+  check('AgE on: basis stepped up by gross income', approx(at.basis, 10000 + income),
+    `${at.basis} != ${10000 + income}`);
+}
+
+// 29c. The step-up means the deemed income is not taxed again on sale: with zero
+//      price return there is no remaining gain, so liquidation incurs no sales KESt.
+{
+  const r = simulate(Object.assign({}, base, {
+    startingAmount: 100000, startingCostBasis: 100000, monthlyContribution: 0,
+    yearsToRetirement: 0, ageEnabled: true, monthlyWithdrawal: 1000, maxRetirementYears: 3,
+    assets: singleAsset({ ageRate: 5 }),
+  }));
+  check('AgE: no sales KESt when basis tracks deemed income', r.summary.kestOnSales === 0, r.summary.kestOnSales);
+  check('AgE: deemed-income KESt is collected in drawdown too', r.summary.deemedIncome.kest > 0,
+    r.summary.deemedIncome.kest);
+}
+
+// 29d. Prepaying tax on the deemed income is a drag: value at retirement with the
+//      feature on is no higher than with it off (a positive-return, multi-year run).
+{
+  const cfg = (ageEnabled) => Object.assign({}, base, {
+    yearsToRetirement: 20, ageEnabled, assets: singleAsset({ annualReturn: 6, ageRate: 2 }),
+  });
+  const off = simulate(cfg(false)).summary.atRetirement.value;
+  const on = simulate(cfg(true)).summary.atRetirement.value;
+  check('AgE: yearly taxation drags value at retirement', on < off, `${on} >= ${off}`);
+}
+
+// 29e. The rate is per asset: an ageRate-0 bucket is untouched while a positive one
+//      is taxed and stepped up.
+{
+  const r = simulate(Object.assign({}, base, {
+    startingAmount: 20000, startingCostBasis: 20000, monthlyContribution: 0,
+    yearsToRetirement: 1, ageEnabled: true,
+    assets: [
+      { id: 'a', allocationStart: 50, allocation: 50, allocationLate: 50, annualReturn: 0, dividendYield: 0, ter: 0, ageRate: 0 },
+      { id: 'b', allocationStart: 50, allocation: 50, allocationLate: 50, annualReturn: 0, dividendYield: 0, ter: 0, ageRate: 8 },
+    ],
+  }));
+  const per = Object.fromEntries(r.summary.atRetirement.perAsset.map((x) => [x.id, x]));
+  check('AgE per-asset: rate-0 bucket untouched', approx(per.a.value, 10000) && approx(per.a.basis, 10000),
+    `${per.a.value} / ${per.a.basis}`);
+  const incomeB = 10000 * 0.08;
+  check('AgE per-asset: rate-8 bucket taxed and stepped up',
+    approx(per.b.value, 10000 - incomeB * 0.275) && approx(per.b.basis, 10000 + incomeB),
+    `${per.b.value} / ${per.b.basis}`);
 }
 
 // 30. i18n integrity: the two dictionaries hold identical key sets, and every
