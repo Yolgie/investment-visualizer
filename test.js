@@ -42,7 +42,7 @@ const base = {
   assets: singleAsset(),
   allocationSwitch: { enabled: false, year: 20 },
   reinvestDividends: true,
-  scenarioSpread: 3,
+  scenarioVolFactor: 0.2,
   monthlyWithdrawal: 2000,
   withdrawalInflationAdjusted: false,
   kest: 27.5,
@@ -136,12 +136,18 @@ const base = {
     fix.summary.atRetirement.value);
 }
 
-// 8. Scenario ordering: min ≤ avg ≤ max.
+// 8. Scenario ordering: a volatile asset gets a real band (min < avg < max);
+//    a zero-volatility asset gets no band (min == avg == max).
 {
-  const s = simulateScenarios(Object.assign({}, base, { assets: singleAsset({ annualReturn: 6 }) }));
+  const s = simulateScenarios(Object.assign({}, base, { assets: singleAsset({ annualReturn: 6, volatility: 15 }) }));
   const { min, avg, max } = s;
-  check('min ≤ avg at retirement', min.summary.atRetirement.value <= avg.summary.atRetirement.value);
-  check('avg ≤ max at retirement', avg.summary.atRetirement.value <= max.summary.atRetirement.value);
+  check('min < avg at retirement', min.summary.atRetirement.value < avg.summary.atRetirement.value);
+  check('avg < max at retirement', avg.summary.atRetirement.value < max.summary.atRetirement.value);
+
+  const flat = simulateScenarios(Object.assign({}, base, { assets: singleAsset({ annualReturn: 6, volatility: 0 }) }));
+  check('zero-volatility asset has no scenario band',
+    flat.min.summary.atRetirement.value === flat.avg.summary.atRetirement.value &&
+    flat.avg.summary.atRetirement.value === flat.max.summary.atRetirement.value);
 }
 
 // 9. Dividends are taxed at KESt; reinvestment raises the cost basis.
@@ -712,10 +718,11 @@ const base = {
         annualReturn: between(-10, 15),
         dividendYield: between(0, 8),
         ter: between(0, 1),
+        volatility: between(0, 25),
       })),
       allocationSwitch: { enabled: rand() < 0.5, year: intBetween(1, 40) },
       reinvestDividends: rand() < 0.5,
-      scenarioSpread: between(0, 6),
+      scenarioVolFactor: between(0, 0.5),
       monthlyWithdrawal: Math.round(between(0, 8000)),
       withdrawalInflationAdjusted: rand() < 0.5,
       kest: between(0, 55),

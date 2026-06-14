@@ -70,7 +70,7 @@ function setFormValues(params, ui) {
   $('withdrawalInflationAdjusted').checked = params.withdrawalInflationAdjusted;
   $('kest').value = params.kest;
   $('inflation').value = params.inflation;
-  $('scenarioSpread').value = params.scenarioSpread;
+  $('scenarioVolFactor').value = params.scenarioVolFactor;
   $('maxRetirementYears').value = params.maxRetirementYears;
   $('monteCarloRuns').value = params.monteCarloRuns ?? DEFAULT_PARAMS.monteCarloRuns;
   $('displayReal').checked = !!(ui && ui.displayReal);
@@ -133,7 +133,7 @@ function readParams() {
     },
     reinvestDividends: $('reinvestDividends').checked,
     ageEnabled: $('ageEnabled').checked,
-    scenarioSpread: Math.max(0, num($('scenarioSpread'))),
+    scenarioVolFactor: Math.max(0, num($('scenarioVolFactor'))),
     monthlyWithdrawal: num($('monthlyWithdrawal')),
     withdrawalInflationAdjusted: $('withdrawalInflationAdjusted').checked,
     kest: num($('kest'), 27.5),
