@@ -360,9 +360,14 @@ const scenarios = [
     const projP90 = await projection();
     expect('mc: 90th-percentile projection exceeds the 10th', projP90 > projP10, `${projP90} vs ${projP10}`);
 
-    // The MC chart's own log-scale toggle redraws the cached chart without re-running it.
-    await page.check('#mcLogScale');
+    // The MC chart's log-scale toggle defaults on; toggling it redraws the cached
+    // chart without re-running. The main chart keeps its own independent (off) toggle.
+    expect('mc: log scale on by default', await page.isChecked('#mcLogScale'));
     expect('mc: log scale applies to the MC chart', (await yScaleType(page, 'monteCarloChart')) === 'logarithmic');
+    await page.uncheck('#mcLogScale');
+    expect('mc: unchecking makes the MC chart linear', (await yScaleType(page, 'monteCarloChart')) === 'linear');
+    await page.check('#mcLogScale');
+    expect('mc: re-checking restores the MC log scale', (await yScaleType(page, 'monteCarloChart')) === 'logarithmic');
     // The main chart keeps its own independent log toggle (still linear here).
     expect('mc: main chart unaffected by the MC log toggle', (await yScaleType(page, 'chart')) === 'linear');
   },
@@ -387,6 +392,30 @@ const scenarios = [
     await page.setInputFiles('#importFile', await download.path());
     await page.waitForFunction(() => document.querySelector('#allocationTable tr[data-asset="etf"] input[data-field="volatility"]').value === '23');
     expect('vol: import restores volatility', (await page.inputValue(volSel)) === '23');
+  },
+
+  // 17. View/layout prefs (section open-state + the two log-scale toggles) persist
+  //     when saving is on, defaulting to closed/off except the MC log scale.
+  async ({ page }, expect) => {
+    expect('view: portfolio collapsed by default', !(await page.locator('#portfolioSection').evaluate((d) => d.open)));
+    expect('view: main log scale off by default', !(await page.isChecked('#logScale')));
+    expect('view: MC log scale on by default', await page.isChecked('#mcLogScale'));
+
+    // The MC log toggle only becomes interactable once a run has rendered.
+    await page.locator('#parametersSection').evaluate((d) => { d.open = true; });
+    await page.fill('#monteCarloRuns', '60');
+    await page.click('#runMonteCarlo');
+    await page.waitForFunction(() => window.Chart && !!window.Chart.getChart(document.getElementById('monteCarloChart')));
+
+    await page.check('#saveInputs');
+    await page.locator('#portfolioSection').evaluate((d) => { d.open = true; });
+    await page.check('#logScale');
+    await page.uncheck('#mcLogScale');
+    await page.reload({ waitUntil: 'networkidle' });
+
+    expect('view: portfolio open-state restored', await page.locator('#portfolioSection').evaluate((d) => d.open));
+    expect('view: main log scale restored', await page.isChecked('#logScale'));
+    expect('view: MC log scale restored', !(await page.isChecked('#mcLogScale')));
   },
 ];
 

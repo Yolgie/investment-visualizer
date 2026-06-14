@@ -5,6 +5,15 @@
 
 const STORAGE_KEY = 'retirement-calc-v1';
 const LANG_KEY = 'retirement-calc-lang';
+// View/layout prefs persisted alongside the params. The MC fan reads best on a
+// log axis, so its toggle defaults on; the others default off/collapsed.
+const DEFAULT_UI = {
+  displayReal: false,
+  portfolioOpen: false,
+  parametersOpen: false,
+  logScale: false,
+  mcLogScale: true,
+};
 const START_YEAR = new Date().getFullYear();
 const ASSET_LABEL_KEYS = {
   etf: 'assetEtf',
@@ -23,6 +32,16 @@ function fmtMoney(v) {
   return new Intl.NumberFormat(lang === 'de' ? 'de-AT' : 'en-AT', {
     style: 'currency', currency: 'EUR', maximumFractionDigits: 0,
   }).format(v);
+}
+
+// Log-axis tick label: only the canonical 1 / 2 / 5 × 10ⁿ values get a number,
+// the other ticks Chart.js inserts stay as bare gridlines — so the scale reads
+// regularly instead of labelling every auto-generated (and often odd) value.
+function logTickLabel(v) {
+  if (v <= 0) return '';
+  const exp = Math.floor(Math.log10(v) + 1e-9);
+  const mantissa = v / Math.pow(10, exp);
+  return [1, 2, 5].some((m) => Math.abs(mantissa - m) < 1e-6) ? fmtMoney(v) : '';
 }
 
 // Plain number with a fixed number of decimals, localized (de-AT uses a comma).
@@ -54,6 +73,13 @@ function setFormValues(params, ui) {
   $('maxRetirementYears').value = params.maxRetirementYears;
   $('monteCarloRuns').value = params.monteCarloRuns ?? DEFAULT_PARAMS.monteCarloRuns;
   $('displayReal').checked = !!(ui && ui.displayReal);
+  // View/layout prefs: only override the DOM when the stored state carries them,
+  // so older saved states (and imports) keep the HTML defaults instead of being
+  // clobbered (notably mcLogScale, which defaults on).
+  if (ui && 'portfolioOpen' in ui) $('portfolioSection').open = !!ui.portfolioOpen;
+  if (ui && 'parametersOpen' in ui) $('parametersSection').open = !!ui.parametersOpen;
+  if (ui && 'logScale' in ui) $('logScale').checked = !!ui.logScale;
+  if (ui && 'mcLogScale' in ui) $('mcLogScale').checked = !!ui.mcLogScale;
 
   for (const row of document.querySelectorAll('#allocationTable tbody tr')) {
     const asset = params.assets.find((a) => a.id === row.dataset.asset);
@@ -118,7 +144,14 @@ function readParams() {
 
 function persist() {
   if (!$('saveInputs').checked) return;
-  const state = { params: readParams(), displayReal: $('displayReal').checked };
+  const state = {
+    params: readParams(),
+    displayReal: $('displayReal').checked,
+    portfolioOpen: $('portfolioSection').open,
+    parametersOpen: $('parametersSection').open,
+    logScale: $('logScale').checked,
+    mcLogScale: $('mcLogScale').checked,
+  };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch { /* storage full or blocked — calculator still works */ }
@@ -318,7 +351,7 @@ function renderChart(scenarios, params, displayReal) {
   const yScale = logScale
     ? {
         type: 'logarithmic',
-        ticks: { callback: (v) => fmtMoney(v) },
+        ticks: { callback: logTickLabel },
       }
     : {
         type: 'linear',
@@ -564,11 +597,29 @@ function redrawMcForToggle() {
 function drawMonteCarlo(result, params, displayReal) {
   const infl = params.inflation;
   const logScale = $('mcLogScale').checked;
-  // Deflate to today's purchasing power when requested; on a log scale a 0 (a
-  // depleted run) can't be plotted, so it becomes a gap.
+  const deflate = (y, year) => (displayReal ? y / Math.pow(1 + infl / 100, year) : y);
+
+  // On a log axis a 0 (a depleted run) has no place. Nulling it out makes the line
+  // vanish mid-descent; instead we floor non-positive values to one decade below the
+  // smallest positive value and pin the axis there, so a run that runs out visibly
+  // drops to the bottom and tracks along it rather than just stopping.
+  let floor;
+  if (logScale) {
+    let minPos = Infinity;
+    for (const run of result.runs) {
+      for (let year = 0; year < run.length; year++) {
+        const v = deflate(run[year], year);
+        if (v > 0 && v < minPos) minPos = v;
+      }
+    }
+    // Drop to the power of 10 below the smallest positive value: a clean axis
+    // minimum (so the bottom tick is a round number) that still sits a clear
+    // decade or so under the lowest real value.
+    if (minPos !== Infinity) floor = Math.pow(10, Math.floor(Math.log10(minPos)) - 1);
+  }
   const defl = (y, year) => {
-    const v = displayReal ? y / Math.pow(1 + infl / 100, year) : y;
-    return logScale && v <= 0 ? null : v;
+    const v = deflate(y, year);
+    return logScale && floor !== undefined ? Math.max(v, floor) : v;
   };
   const series = (pick) => result.bands.map((b, year) => ({ x: START_YEAR + year, y: defl(pick(b), year) }));
 
@@ -607,7 +658,7 @@ function drawMonteCarlo(result, params, displayReal) {
   // philosophy as the main chart). Log: autoscale to fit everything.
   const p95Peak = series((b) => b.p95).reduce((m, p) => (p.y != null && p.y > m ? p.y : m), 0);
   const yScale = logScale
-    ? { type: 'logarithmic', ticks: { callback: (v) => fmtMoney(v) } }
+    ? { type: 'logarithmic', min: floor, ticks: { callback: logTickLabel } }
     : {
         type: 'linear', beginAtZero: true,
         max: p95Peak > 0 ? p95Peak * 1.1 : undefined,
@@ -993,7 +1044,7 @@ function recalc() {
 }
 
 function init() {
-  if (!restore()) setFormValues(DEFAULT_PARAMS, { displayReal: false });
+  if (!restore()) setFormValues(DEFAULT_PARAMS, DEFAULT_UI);
   applyI18n();
   recalc();
 
@@ -1010,7 +1061,7 @@ function init() {
   });
 
   $('resetDefaults').addEventListener('click', () => {
-    setFormValues(DEFAULT_PARAMS, { displayReal: false });
+    setFormValues(DEFAULT_PARAMS, DEFAULT_UI);
     recalc();
     persist();
   });
@@ -1023,10 +1074,14 @@ function init() {
     $('importFile').value = ''; // allow re-importing the same file
   });
 
-  $('logScale').addEventListener('change', recalc);
+  $('logScale').addEventListener('change', () => { recalc(); persist(); });
   // The MC chart has its own log-scale toggle; it and the nominal/real toggle redraw
   // a cached Monte Carlo result without re-running it (the sim only runs on click).
-  $('mcLogScale').addEventListener('change', redrawMcForToggle);
+  $('mcLogScale').addEventListener('change', () => { redrawMcForToggle(); persist(); });
+
+  // Expand/collapse state of the two foldable sections is part of the saved view.
+  $('portfolioSection').addEventListener('toggle', persist);
+  $('parametersSection').addEventListener('toggle', persist);
   $('displayReal').addEventListener('change', redrawMcForToggle);
   $('runMonteCarlo').addEventListener('click', renderMonteCarlo);
   // Switching the goal-block percentile re-solves from the cached result (no re-run).

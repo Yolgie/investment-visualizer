@@ -157,8 +157,8 @@ table input[type="number"] { min-width: 4.5rem; padding: 0.3rem 0.4rem; }
 
 .chart-option { margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; }
 .chart-wrap { position: relative; height: 380px; }
-/* The Monte Carlo spaghetti chart is denser, so give it ~20 % more height. */
-#mcResults .chart-wrap { height: 456px; }
+/* The Monte Carlo spaghetti chart is denser, so give it plenty of vertical room. */
+#mcResults .chart-wrap { height: 700px; }
 
 #runMonteCarlo {
   padding: 0.5rem 1.1rem;
